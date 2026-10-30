@@ -12,7 +12,7 @@ const preview = await build({ entryPoints: ['apps/web/src/main.tsx'], bundle: tr
 const js = preview.outputFiles.find(file => file.path.endsWith('.js')).text.replaceAll('</script', '<\\/script');
 const css = preview.outputFiles.find(file => file.path.endsWith('.css')).text;
 const html = (await readFile('apps/web/index.html', 'utf8'))
-  .replace('<link rel="stylesheet" href="/main.css"/>', `<style>${css}</style>`)
-  .replace('<script type="module" src="/main.js"></script>', `<script>${js}</script>`);
+  .replace('<link rel="stylesheet" href="/main.css"/>', () => `<style>${css}</style>`)
+  .replace('<script type="module" src="/main.js"></script>', () => `<script>${js}</script>`);
 await writeFile('apps/web/dist/preview.html', html);
 console.log('Built local UI → apps/web/dist');

@@ -42,6 +42,10 @@ function download(name: string, data: unknown) {
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function sessionGet() { try { return sessionStorage.getItem('neuron-dj.active'); } catch { return null; } }
+function sessionSet(id: string | null) {
+  try { if (id) sessionStorage.setItem('neuron-dj.active', id); else sessionStorage.removeItem('neuron-dj.active'); } catch { /* Reconnection persistence is optional. */ }
+}
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
@@ -72,6 +76,7 @@ function App() {
   const activeRef = useRef<string | null>(null);
   const sequenceRef = useRef(0);
   const pending = useRef<{ fingerprint: string; key: string } | null>(null);
+  const submittingRef = useRef(false);
   const busy = !!job && !terminal(job.status) && !recorded;
   const changed = !!job && (strength !== job.request.strength || maxTokens !== job.request.max_tokens || prompt.trim() !== job.request.prompt);
   const selected = presets.find(p => p.strength === strength);
@@ -88,11 +93,11 @@ function App() {
       const incoming = recipeFromHash(location.hash);
       if (incoming) { setStrength(incoming.strength); setMaxTokens(incoming.max_tokens); notify(`Loaded “${incoming.name}”. Nothing runs until you press Run comparison.`); }
     } catch (e) { notify((e as Error).message); }
-    const id = sessionStorage.getItem('neuron-dj.active');
+    const id = sessionGet();
     if (id) api(`/api/comparisons/${id}`).then(data => {
       setJob(data); setPrompt(data.request.prompt); setStrength(data.request.strength); setMaxTokens(data.request.max_tokens);
       if (!terminal(data.status)) setJobId(id);
-    }).catch(() => sessionStorage.removeItem('neuron-dj.active'));
+    }).catch(() => sessionSet(null));
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -110,7 +115,7 @@ function App() {
         if (data.job.id !== jobId || data.id <= sequenceRef.current) return;
         sequenceRef.current = data.id;
         setConnectionLost(false); setJob(data.job);
-        if (terminal(data.job.status)) { source.close(); sessionStorage.removeItem('neuron-dj.active'); refresh(); }
+        if (terminal(data.job.status)) { source.close(); sessionSet(null); refresh(); }
       } catch { source.close(); notify('Could not read the response stream. Reload to reconnect to this run.'); }
     });
     source.onerror = () => { if (activeRef.current === jobId) setConnectionLost(true); };
@@ -131,7 +136,7 @@ function App() {
   }
   function storeRecipes(next: Recipe[]) {
     try { localStorage.setItem('neuron-dj.recipes.v1', JSON.stringify(next)); setRecipes(next); }
-    catch { notify('Browser storage is full or unavailable. Export your recipe to a file instead.'); }
+    catch { throw new Error('Browser storage is full or unavailable. Export your recipe to a file instead.'); }
   }
   function saveRecipe(event: React.FormEvent) {
     event.preventDefault();
@@ -146,7 +151,7 @@ function App() {
     catch { notify('Browser storage is unavailable. Export this comparison instead.'); }
   }
   function viewReplay(value: Job) {
-    if (busy) return notify('Stop the active run before opening a replay.');
+    if (busy || submittingRef.current) return notify('Finish or stop the active run before opening a replay.');
     setJobId(null); setJob(value); setRecorded(true); setPrompt(value.request.prompt);
     setStrength(value.request.strength); setMaxTokens(value.request.max_tokens); setPanel(null);
   }
@@ -160,17 +165,18 @@ function App() {
     } catch (e) { notify((e as Error).message); }
   }
   async function run() {
+    if (submittingRef.current || busy || runtime.state !== 'ready') return;
     if (!prompt.trim()) { promptRef.current?.focus(); return; }
     const request = { prompt: prompt.trim(), strength, max_tokens: maxTokens, recipe_id: RECIPE_ID, schema_version: 1 };
     const fingerprint = JSON.stringify(request);
     if (!pending.current || pending.current.fingerprint !== fingerprint) pending.current = { fingerprint, key: crypto.randomUUID() };
-    setSubmitting(true);
+    submittingRef.current = true; setSubmitting(true);
     try {
       const data = await api('/api/comparisons', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pending.current.key }, body: fingerprint });
       pending.current = null; sequenceRef.current = 0; setRecorded(false); setConnectionLost(false);
-      setJob(data); setJobId(data.id); sessionStorage.setItem('neuron-dj.active', data.id);
+      setJob(data); setJobId(data.id); sessionSet(data.id);
     } catch (e) { notify((e as Error).message); }
-    finally { setSubmitting(false); }
+    finally { submittingRef.current = false; setSubmitting(false); }
   }
   async function stop() {
     if (!job) return;
@@ -182,7 +188,11 @@ function App() {
     catch (e) { notify((e as Error).message); }
   }
   async function copyLink() {
-    try { await navigator.clipboard.writeText(recipeLink(makeRecipe(selected?.name || 'Custom mix'), location.href)); notify('Recipe link copied. It contains settings only.'); }
+    try {
+      const recipe = job ? validateRecipe({ ...makeRecipe('Comparison settings'), strength: job.request.strength,
+        max_tokens: job.request.max_tokens, profile_hash: typeof job.runtime.profile?.hash === 'string' ? job.runtime.profile.hash : null }) : makeRecipe(selected?.name || 'Custom mix');
+      await navigator.clipboard.writeText(recipeLink(recipe, location.href)); notify('Recipe link copied. It contains settings only.');
+    }
     catch { notify('Clipboard access is unavailable. Export the recipe as a file instead.'); }
   }
 
@@ -219,7 +229,7 @@ function App() {
           const text = job?.outputs[side] || '';
           const generating = job?.status === `running-${side}`;
           const metrics = job?.metrics[side];
-          const sideStatus = generating ? 'Generating' : metrics ? metrics.stop_reason === 'length' ? 'Token limit reached' : metrics.stop_reason === 'stopped' ? 'Partial' : 'Complete' : job?.status === 'stopping' ? 'Stopping' : busy ? 'Waiting' : text ? 'Partial output' : 'Waiting for a prompt';
+          const sideStatus = recorded && text ? 'Recorded output' : generating ? 'Generating' : metrics ? metrics.stop_reason === 'length' ? 'Token limit reached' : metrics.stop_reason === 'stopped' ? 'Partial' : 'Complete' : job?.status === 'stopping' ? 'Stopping' : busy ? 'Waiting' : text ? 'Partial output' : 'Waiting for a prompt';
           return <article className={`deck ${side}`} key={side}><header className="deck-header"><div><span className="deck-letter">{i === 0 ? 'A' : 'B'}</span><h2>{i === 0 ? 'Original' : 'Remix'}</h2><span className="deck-dose">{i === 0 ? '0.00' : (job?.request.strength ?? strength).toFixed(2)}×</span></div><span className="deck-type">{i === 0 ? 'BASELINE' : 'STEERED'}</span></header>
             <div className="deck-content" aria-label={`${side} response`} aria-live="off">{text ? <div className="response-text">{text}{generating && <span className="typing-cursor"/>}</div> : <div className="empty-deck"><span className="empty-icon"><Icon name={i === 0 ? 'wave' : 'sliders'} size={25}/></span><h3>{i === 0 ? 'The original signal' : 'A different expression'}</h3><p>{i === 0 ? 'Unmodified Qwen will answer here.' : 'The same model, with your chosen intervention.'}</p><span className="empty-rule"/></div>}</div>
             <footer className="deck-footer"><span><i className={generating ? 'status-dot generating' : 'status-dot'}/>{sideStatus}</span><span>{metrics ? `${metrics.tokens} tokens · ${metrics.seconds.toFixed(1)}s` : '— tokens'}</span></footer></article>;
@@ -232,10 +242,10 @@ function App() {
     <input ref={inputFile} className="visually-hidden" type="file" accept=".json,application/json" aria-label="Import a recipe or replay" onChange={e => { importFile(e.target.files?.[0]); e.target.value = ''; }}/>
     {toast && <div className="toast" role="status"><Icon name="info" size={17}/><span>{toast}</span><button className="icon-button" onClick={() => setToast('')} aria-label="Dismiss notification"><Icon name="close" size={15}/></button></div>}
     {panel === 'setup' && <Modal title="Connect your local model" onClose={() => setPanel(null)}><p className="dialog-intro">The interface is ready. Generation needs the pinned Qwen checkpoint and a local Python runtime.</p><div className={`setup-status ${runtime.state}`}><span className="runtime-dot"/><div><strong>{runtimeLabel}</strong><p>{runtime.message}</p></div></div><div className="setup-steps"><div><span>01</span><div><h3>Install the model packages</h3><p>Use Python 3.12 in this project's virtual environment.</p><code>.venv/bin/python -m pip install -e &quot;.[model]&quot;</code></div></div><div><span>02</span><div><h3>Download the checkpoint once</h3><p>About 9.34 GB. Keep at least 25 GiB free. The cache stays in this project.</p><code>.venv/bin/python scripts/download_model.py</code></div></div><div><span>03</span><div><h3>Load and calibrate</h3><p>The model will be calibrated on ordinary prompts. Local performance and the useful strength range still need a pilot.</p><button className="button primary" disabled={runtime.state === 'loading' || runtime.state === 'ready' || runtime.state === 'disconnected'} onClick={loadModel}><Icon name="cpu"/>{runtime.state === 'loading' ? 'Loading on your Mac…' : runtime.state === 'ready' ? 'Model connected' : 'Load cached model'}</button></div></div></div><p className="dialog-note">Your prompts stay on this Mac. No cloud key is required. Loading never triggers an automatic weight download.</p></Modal>}
-    {panel === 'details' && <Modal title="Inside the experiment" onClose={() => setPanel(null)}><p className="dialog-intro">A reversible activation intervention, applied to the same checkpoint. A change in tone alone does not establish a safety jailbreak.</p><dl className="details-list"><div><dt>Model</dt><dd>Qwen3.5-4B</dd></div><div><dt>Mechanism</dt><dd>MLP activation steering</dd></div><div><dt>Published pair</dt><dd>L14 / N8949 +1<br/>L13 / N7956 −1</dd></div><div><dt>Calibration</dt><dd>Residual-normalized, computed locally</dd></div><div><dt>Evidence</dt><dd>Published recipe · local dose pilot pending</dd></div><div><dt>Displayed strength</dt><dd>{(job?.request.strength ?? strength).toFixed(2)}× {job ? '(run snapshot)' : '(next run)'}</dd></div><div><dt>Generation</dt><dd>Greedy · thinking disabled · {job?.request.max_tokens ?? maxTokens} output tokens max</dd></div><div><dt>Runtime</dt><dd>{String(job?.runtime.profile?.device || runtime.profile?.device || 'Not loaded')} / {String(job?.runtime.profile?.dtype || runtime.profile?.dtype || '—')}</dd></div><div><dt>Checkpoint</dt><dd className="revision">{REVISION}</dd></div></dl><a className="source-link" href="https://github.com/shmuelamar/evil-qwen" target="_blank" rel="noreferrer">Read the published reproduction <Icon name="arrow" size={15}/></a></Modal>}
+    {panel === 'details' && <Modal title="Inside the experiment" onClose={() => setPanel(null)}><p className="dialog-intro">A reversible activation intervention, applied to the same checkpoint. A change in tone alone does not establish a safety jailbreak.</p>{job && <div className="run-prompt"><span className="eyebrow">PROMPT USED FOR THESE RESPONSES</span><p>{job.request.prompt}</p></div>}<dl className="details-list"><div><dt>Model</dt><dd>Qwen3.5-4B</dd></div><div><dt>Mechanism</dt><dd>MLP activation steering</dd></div><div><dt>Published pair</dt><dd>L14 / N8949 +1<br/>L13 / N7956 −1</dd></div><div><dt>Calibration</dt><dd>Residual-normalized, computed locally</dd></div><div><dt>Evidence</dt><dd>Published recipe · local dose pilot pending</dd></div><div><dt>Displayed strength</dt><dd>{(job?.request.strength ?? strength).toFixed(2)}× {job ? '(run snapshot)' : '(next run)'}</dd></div><div><dt>Generation</dt><dd>Greedy · thinking disabled · {job?.request.max_tokens ?? maxTokens} output tokens max</dd></div><div><dt>Runtime</dt><dd>{String(job ? job.runtime.profile?.device || 'Not recorded' : runtime.profile?.device || 'Not loaded')} / {String(job ? job.runtime.profile?.dtype || '—' : runtime.profile?.dtype || '—')}</dd></div><div><dt>Checkpoint</dt><dd className="revision">{REVISION}</dd></div></dl><a className="source-link" href="https://github.com/shmuelamar/evil-qwen" target="_blank" rel="noreferrer">Read the published reproduction <Icon name="arrow" size={15}/></a></Modal>}
     {panel === 'save' && <Modal title="Save your mix" onClose={() => setPanel(null)}><form onSubmit={saveRecipe}><p className="dialog-intro">Save settings on this browser. Your prompt and responses are not included.</p><label className="field-label" htmlFor="recipe-name">Mix name</label><input id="recipe-name" className="text-input" value={recipeName} onChange={e => setRecipeName(e.target.value)} maxLength={48} required/><div className="recipe-preview"><Icon name="sliders"/><span>The published pair</span><strong>{strength.toFixed(2)}×</strong></div><div className="dialog-actions"><button type="button" className="button secondary" onClick={() => download('neuron-dj-recipe.json', makeRecipe())}><Icon name="share" size={16}/> Export file</button><button className="button primary" type="submit"><Icon name="save" size={16}/> Save mix</button></div></form></Modal>}
     {panel === 'export' && job && <Modal title="Export this comparison" onClose={() => setPanel(null)}><p className="dialog-intro">This replay includes the prompt and both outputs below, plus their generation settings. Review the text before sharing.</p><div className="export-preview"><span className="eyebrow">PROMPT</span><p>{job.request.prompt}</p>{(['original', 'remix'] as const).map(side => <div key={side}><span className="eyebrow">{side.toUpperCase()}</span><p>{job.outputs[side] || '(No output)'}</p></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={copyLink}>Copy settings-only link</button><button className="button primary" onClick={() => download('neuron-dj-replay.json', replayEnvelope(job))}><Icon name="share" size={16}/> Export replay</button></div></Modal>}
-    {panel === 'library' && <Modal title="Your local library" onClose={() => setPanel(null)}><p className="dialog-intro">Stored on this browser. Recipes contain settings; saved comparisons also contain text.</p><div className="library-heading"><h3>Saved mixes <span>{recipes.length}</span></h3><button className="text-link" onClick={() => inputFile.current?.click()}><Icon name="upload" size={14}/> Import</button></div>{!recipes.length && <p className="library-empty">Find a dose you like, then choose Save this mix.</p>}{recipes.map(recipe => <div className="library-row" key={recipe.id}><button onClick={() => { applyRecipe(recipe); setPanel(null); }}><Icon name="sliders"/><span>{recipe.name}<small>{recipe.strength.toFixed(2)}× · {recipe.max_tokens} tokens max</small></span></button><button className="icon-button" aria-label={`Delete ${recipe.name}`} onClick={() => storeRecipes(recipes.filter(r => r.id !== recipe.id))}><Icon name="close" size={15}/></button></div>)}<h3 className="library-section">Saved comparisons <span>{savedRuns.length}</span></h3>{!savedRuns.length && <p className="library-empty">Completed runs stay in memory until you explicitly save them.</p>}{savedRuns.map(value => <div className="library-row" key={value.id}><button onClick={() => viewReplay(value)}><Icon name="folder"/><span>{value.request.prompt.slice(0, 65)}<small>{value.request.strength.toFixed(2)}× · Recorded playback</small></span></button><button className="icon-button" aria-label="Delete saved comparison" onClick={() => { const next = savedRuns.filter(j => j.id !== value.id); try { localStorage.setItem('neuron-dj.runs.v1', JSON.stringify(next.map(replayEnvelope))); setSavedRuns(next); } catch { notify('Could not update browser storage.'); } }}><Icon name="close" size={15}/></button></div>)}{examples.length > 0 && <><h3 className="library-section">Recorded local examples</h3>{examples.map(value => <button className="example-button" key={value.id} onClick={() => viewReplay(value)}>{value.request.prompt}<Icon name="arrow" size={15}/></button>)}</>}</Modal>}
+    {panel === 'library' && <Modal title="Your local library" onClose={() => setPanel(null)}><p className="dialog-intro">Stored on this browser. Recipes contain settings; saved comparisons also contain text.</p><div className="library-heading"><h3>Saved mixes <span>{recipes.length}</span></h3><button className="text-link" onClick={() => setPanel('save')}><Icon name="plus" size={14}/> Save mix</button><button className="text-link" onClick={() => inputFile.current?.click()}><Icon name="upload" size={14}/> Import</button></div>{!recipes.length && <p className="library-empty">Find a dose you like, then choose Save this mix.</p>}{recipes.map(recipe => <div className="library-row" key={recipe.id}><button onClick={() => { applyRecipe(recipe); setPanel(null); }}><Icon name="sliders"/><span>{recipe.name}<small>{recipe.strength.toFixed(2)}× · {recipe.max_tokens} tokens max</small></span></button><button className="icon-button" aria-label={`Delete ${recipe.name}`} onClick={() => { try { storeRecipes(recipes.filter(r => r.id !== recipe.id)); } catch (e) { notify((e as Error).message); } }}><Icon name="close" size={15}/></button></div>)}<h3 className="library-section">Saved comparisons <span>{savedRuns.length}</span></h3>{!savedRuns.length && <p className="library-empty">Completed runs stay in memory until you explicitly save them.</p>}{savedRuns.map(value => <div className="library-row" key={value.id}><button onClick={() => viewReplay(value)}><Icon name="folder"/><span>{value.request.prompt.slice(0, 65)}<small>{value.request.strength.toFixed(2)}× · Recorded playback</small></span></button><button className="icon-button" aria-label="Delete saved comparison" onClick={() => { const next = savedRuns.filter(j => j.id !== value.id); try { localStorage.setItem('neuron-dj.runs.v1', JSON.stringify(next.map(replayEnvelope))); setSavedRuns(next); } catch { notify('Could not update browser storage.'); } }}><Icon name="close" size={15}/></button></div>)}{examples.length > 0 && <><h3 className="library-section">Recorded local examples</h3>{examples.map(value => <button className="example-button" key={value.id} onClick={() => viewReplay(value)}>{value.request.prompt}<Icon name="arrow" size={15}/></button>)}</>}</Modal>}
   </>;
 }
 
