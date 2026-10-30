@@ -116,7 +116,25 @@ class LocalRuntime:
             self._state('error', message)
 
     def _prepare_profile(self):
-        """Filled by the activation adapter; baseline-only until then."""
+        from .steering import METHOD, PROMPT_HASH, calibrate
+        self._state('loading', 'Calibrating the persona recipe on ordinary prompts…')
+        STATE_DIR.mkdir(exist_ok=True)
+        path = STATE_DIR / 'calibration.json'
+        cached = None
+        try:
+            cached = json.loads(path.read_text())
+        except (OSError, ValueError):
+            pass
+        if (cached and cached.get('profile_hash') == self.profile['hash']
+                and cached.get('method') == METHOD and cached.get('prompt_hash') == PROMPT_HASH
+                and set(cached.get('units', {})) == {'13', '14'}
+                and all(isinstance(v, (int, float)) and 0 < v < 1e9 for v in cached['units'].values())):
+            self.calibration = cached
+        else:
+            self.calibration = calibrate(self)
+            temporary = path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(self.calibration, indent=2) + '\n')
+            temporary.replace(path)
 
     def inputs(self, prompt):
         rendered = self.tokenizer.apply_chat_template([{'role': 'user', 'content': prompt}],
@@ -127,9 +145,11 @@ class LocalRuntime:
         return batch.to(self.model.device)
 
     def _scope(self, strength):
-        if strength:
-            raise RuntimeError('The steering adapter has not been configured.')
-        return nullcontext()
+        from .steering import scoped_steering
+        if self.calibration is None:
+            raise RuntimeError('The model has not been calibrated.')
+        return scoped_steering(self.model.model.language_model.layers,
+                               self.calibration['units'], strength)
 
     def generate(self, prompt, strength, max_tokens, cancel, on_text):
         import torch
