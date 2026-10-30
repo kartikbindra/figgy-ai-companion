@@ -5,7 +5,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 from pathlib import Path
-import threading
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .contracts import ComparisonRequest, recipe_metadata

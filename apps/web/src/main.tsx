@@ -163,7 +163,7 @@ function App() {
     try {
       const value = JSON.parse(await file.text());
       if (value.kind === 'neuron-dj-replay') viewReplay(validateReplay(value));
-      else { const recipe = validateRecipe(value); storeRecipes([recipe, ...recipes].slice(0, 12)); applyRecipe(recipe); }
+      else { const recipe = validateRecipe(value); storeRecipes([recipe, ...recipes.filter(r => r.id !== recipe.id)].slice(0, 12)); applyRecipe(recipe); }
     } catch (e) { notify((e as Error).message); }
   }
   async function run() {
@@ -224,7 +224,7 @@ function App() {
       </aside>
       <main>
         <section className="workspace-intro"><div><div className="eyebrow"><span className="live-dot"/> MODEL PERSONALITY PLAYGROUND</div><h1>Turn up the other side.</h1><p>One prompt. The original model and your remix, side by side.</p></div><div className="session-tag"><span>SESSION / 001</span><strong>Qwen3.5 <span>4B</span></strong><small>LOCAL · ACTIVATION STEERING</small></div></section>
-        <section className="mixer" aria-label="Mix controls"><div className="mixer-heading"><div><span className="eyebrow">02 / MAKE YOUR MIX</span><h2>Steering strength</h2></div><button className="text-link" onClick={() => { setStrength(.5); setMaxTokens(128); setExpectedProfile(null); }}><Icon name="reset" size={14}/> Reset</button></div>
+        <section className="mixer" aria-label="Mix controls"><div className="mixer-heading"><div><span className="eyebrow">02 / MAKE YOUR MIX</span><h2>Steering strength <span className="experimental-tag">Experimental</span></h2></div><button className="text-link" onClick={() => { setStrength(.5); setMaxTokens(128); setExpectedProfile(null); }}><Icon name="reset" size={14}/> Reset</button></div>
           <div className="fader-row"><div className="strength-readout">{strength.toFixed(2)}<span>×</span></div><div className="fader-control"><div className="fader-endpoints"><span>Unmodified</span><span>Published dose</span></div><input type="range" min="0" max={runtime.strength_cap} step="0.05" value={strength} onChange={e => { setStrength(Number(e.target.value)); setExpectedProfile(null); }} aria-label="Steering strength" aria-valuetext={`${strength.toFixed(2)} times the published dose`} style={{ '--fill': `${strength * 100}%` } as React.CSSProperties}/><div className="fader-ticks" aria-hidden="true">{Array.from({ length: 21 }, (_, i) => <i key={i}/>)}</div></div><div className="mix-label"><span className="mix-indicator"/>{selected?.name || 'Custom dose'}<small>Persona pair · v1</small></div></div>
           <div className="mixer-foot"><span><Icon name="info" size={13}/> Strength scales the intervention; personality changes can be nonlinear.</span>{changed && <span className="pending-tag">Applies to next run</span>}</div></section>
         {runtime.state !== 'ready' && <section className="connection-banner" aria-label="Runtime connection"><span className={`connection-symbol ${runtime.state === 'loading' ? 'pulsing' : ''}`}><Icon name="cpu" size={19}/></span><div><strong>{runtime.state === 'loading' ? 'Bringing your model online' : 'Bring your model online'}</strong><p>{runtime.message}</p></div><button className="button secondary" onClick={() => setPanel('setup')}>{runtime.state === 'loading' ? 'View status' : 'Local setup'}<Icon name="arrow" size={15}/></button></section>}

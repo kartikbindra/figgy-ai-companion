@@ -31,10 +31,27 @@ export function validateReplay(value) {
   validateRecipe({ kind: 'neuron-dj-recipe', schema_version: 1, id: 'replay', name: 'Replay',
     recipe_id: job.request.recipe_id, model_revision: job.runtime.model_revision,
     strength: job.request.strength, max_tokens: job.request.max_tokens, profile_hash: null });
-  // Only the known renderable fields survive import. No imported metrics or runtime instructions execute.
+  const profile = {};
+  const allowedProfileFields = ['device', 'dtype', 'quantization', 'torch', 'transformers', 'accelerate',
+    'platform', 'template_hash', 'attention', 'model_revision'];
+  for (const key of allowedProfileFields) {
+    const value = job.runtime.profile?.[key];
+    if (typeof value === 'string' && value.length < 128) profile[key] = value;
+  }
+  if (/^[a-f0-9]{64}$/.test(job.runtime.profile?.hash || '')) profile.hash = job.runtime.profile.hash;
+  const metrics = {};
+  for (const side of ['original', 'remix']) {
+    const value = job.metrics?.[side];
+    if (value && Number.isInteger(value.tokens) && value.tokens >= 0 && value.tokens <= 4096 &&
+        Number.isFinite(value.seconds) && value.seconds >= 0 && value.seconds <= 36000 &&
+        ['end', 'length', 'stopped'].includes(value.stop_reason)) {
+      metrics[side] = { tokens: value.tokens, seconds: value.seconds, stop_reason: value.stop_reason };
+    }
+  }
+  // Preserve only bounded, known provenance fields; imported runtime instructions never execute.
   return { ...job, id: job.id.slice(0, 80), sequence: 0,
-    created_at: typeof job.created_at === 'string' ? job.created_at.slice(0, 64) : '', metrics: {},
-    runtime: { model_id: 'Qwen/Qwen3.5-4B', model_revision: REVISION, profile: null },
+    created_at: typeof job.created_at === 'string' ? job.created_at.slice(0, 64) : '', metrics,
+    runtime: { model_id: 'Qwen/Qwen3.5-4B', model_revision: REVISION, profile: Object.keys(profile).length ? profile : null },
     error: typeof job.error === 'string' ? job.error.slice(0, 500) : null, queue_position: null };
 }
 
@@ -42,6 +59,7 @@ export function recipeLink(recipe, base) {
   const bytes = new TextEncoder().encode(JSON.stringify(validateRecipe(recipe)));
   const encoded = btoa(String.fromCharCode(...bytes));
   const url = new URL(base);
+  url.search = '';
   url.hash = 'recipe=' + encodeURIComponent(encoded);
   return url.toString();
 }

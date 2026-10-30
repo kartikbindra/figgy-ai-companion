@@ -1,7 +1,6 @@
 """Lazy, local-only model adapter. This module can be imported without ML packages."""
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib
@@ -59,6 +58,9 @@ class LocalRuntime:
     def load_async(self):
         with self._state_lock:
             if self.state in ('loading', 'ready'):
+                return
+            if self.state == 'error' and self.model is not None:
+                self.message = 'Restart the local service to replace the retired model safely.'
                 return
             self.state = 'loading'
             self.message = 'Checking the local model cache…'

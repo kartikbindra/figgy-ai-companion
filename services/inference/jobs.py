@@ -205,7 +205,8 @@ class JobManager:
             try:
                 # This lock spans both independent legs and all hook teardown.
                 with self.runtime.model_lock:
-                    job.started = time.monotonic()
+                    with self.condition:
+                        job.started = time.monotonic()
                     for side, strength in (('original', 0), ('remix', job.request.strength)):
                         with self.condition:
                             if job.cancel.is_set():
