@@ -119,7 +119,7 @@ def make_handler(runtime, manager, web_root=None):
                     return self._json(200, manager.get(parts[2]))
                 if parts[:2] == ['api', 'comparisons'] and len(parts) == 4 and parts[3] == 'events':
                     try:
-                        cursor = int(parse_qs(url.query).get('after', [self.headers.get('Last-Event-ID', '0')])[0])
+                        cursor = int(self.headers.get('Last-Event-ID') or parse_qs(url.query).get('after', ['0'])[0])
                     except ValueError:
                         raise JobError(400, 'Invalid event cursor.')
                     stream = manager.events(parts[2], cursor)

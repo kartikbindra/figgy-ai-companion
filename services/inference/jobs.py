@@ -47,16 +47,19 @@ class JobManager:
         self.worker = threading.Thread(target=self._work, name='comparison-worker', daemon=True)
         self.worker.start()
 
-    def _prune(self):
+    def _prune(self, reserve=False):
         now = time.monotonic()
         terminal = sorted((j for j in self.jobs.values() if j.finished is not None and not j.subscribers),
                           key=lambda j: j.finished)
         remove = {j.id for j in terminal if now - j.finished > self.ttl}
         remaining = [j for j in terminal if j.id not in remove]
-        remove.update(j.id for j in remaining[:max(0, len(self.jobs) - len(remove) - self.retained + 1)])
+        if reserve:
+            remove.update(j.id for j in remaining[:max(0, len(self.jobs) - len(remove) - self.retained + 1)])
         for job_id in remove:
             self.jobs.pop(job_id, None)
         self.keys = {k: v for k, v in self.keys.items() if v[0] in self.jobs}
+        self.queue = deque(key for key in self.queue
+                           if key in self.jobs and self.jobs[key].status == 'queued')
 
     def snapshot(self, job):
         position = None
@@ -92,6 +95,7 @@ class JobManager:
                 if fingerprint != request.fingerprint():
                     raise JobError(409, 'This submission key already belongs to different settings.')
                 return self.snapshot(self.jobs[job_id])
+            self._prune(reserve=True)
             if self.closing:
                 raise JobError(503, 'The instrument is shutting down.')
             if self.runtime.status()['state'] != 'ready':
@@ -123,6 +127,7 @@ class JobManager:
                 job.cancel.set()
                 if job.status == 'queued':
                     self._finish(job, 'stopped')
+                    self.queue = deque(key for key in self.queue if key != job.id)
                 elif job.status != 'stopping':
                     job.status = 'stopping'
                     self._emit(job, 'stopping')
