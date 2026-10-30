@@ -2,8 +2,14 @@
 
 The accepted product plan is `NEURON_DJ_PLAN.md`. Local execution is the delivery target.
 
-The execution sandbox currently rejects `.git` writes and external DNS/network access. Python 3.12 is available. React and build tools can be reused from existing local caches. The Qwen3.5-4B checkpoint is not cached, so live model loading, calibration, performance, and persona strength validation cannot yet be reported as passing.
+The execution sandbox currently rejects `.git` writes, external DNS/network access, and localhost port binding. Python 3.12 is available. React and build tools were obtained from existing local caches. The Qwen3.5-4B checkpoint is not cached, so live model loading, calibration, performance, and persona strength validation cannot yet be reported as passing.
 
 Milestones are retained as a Git fast-import stream in `.artifacts/history.fi`, with the user's configured author identity and conventional commit subjects. When `.git` writes are available, run `python3 scripts/import_history.py` from a normal terminal to create those commits. The importer refuses to replace existing history. No attribution trailers are added.
 
 The web app must show an honest setup state until a real model is available. Fixtures belong only to tests. No invented example is presented as a model recording.
+
+Implemented: static React/TypeScript UI, setup panel, paired response decks, pending next-run controls, local recipes, settings-only links, explicit comparison exports, validated imports, local HTTP/API service, one model-owning worker, immutable paired jobs, bounded queue/replay, idempotency, acknowledged stopping, orphan/deadline cancellation, pinned model loading, profile-bound calibration, and scoped activation hooks.
+
+The HTTP server uses Python's standard library so setup/status and the UI do not require installing model packages. This is an intentional reduction in dependencies from the candidate architecture. The DOM test environment exercises the production bundle without opening a browser or network socket. It does not verify visual layout, native dialog behavior, or real SSE transport.
+
+Full-model validation remains the outstanding gate. The runtime refuses to become ready if finite-logit or baseline-recovery smoke checks fail. The separate pilot command generates actual records but leaves dose/coherence judgments for review. No public deployment was attempted.
