@@ -33,12 +33,15 @@ class Job:
     sequence: int = 0
     finished: float | None = None
     subscribers: int = 0
+    last_seen: float = field(default_factory=time.monotonic)
+    started: float | None = None
 
 
 class JobManager:
-    def __init__(self, runtime, *, capacity=4, retained=12, ttl=900):
+    def __init__(self, runtime, *, capacity=4, retained=12, ttl=900, orphan_timeout=45, deadline=600):
         self.runtime = runtime
         self.capacity, self.retained, self.ttl = capacity, retained, ttl
+        self.orphan_timeout, self.deadline = orphan_timeout, deadline
         self.condition = threading.Condition(threading.RLock())
         self.jobs = {}
         self.keys = {}
@@ -46,6 +49,8 @@ class JobManager:
         self.closing = False
         self.worker = threading.Thread(target=self._work, name='comparison-worker', daemon=True)
         self.worker.start()
+        self.monitor = threading.Thread(target=self._watch, name='comparison-watchdog', daemon=True)
+        self.monitor.start()
 
     def _prune(self, reserve=False):
         now = time.monotonic()
@@ -116,6 +121,7 @@ class JobManager:
         with self.condition:
             if job_id not in self.jobs:
                 raise JobError(404, 'This local comparison is no longer available.')
+            self.jobs[job_id].last_seen = time.monotonic()
             return self.snapshot(self.jobs[job_id])
 
     def cancel(self, job_id):
@@ -143,6 +149,7 @@ class JobManager:
             if job.subscribers >= 3:
                 raise JobError(429, 'Too many streams for this comparison.')
             job.subscribers += 1
+            job.last_seen = time.monotonic()
         try:
             while True:
                 with self.condition:
@@ -166,6 +173,25 @@ class JobManager:
         finally:
             with self.condition:
                 job.subscribers -= 1
+                job.last_seen = time.monotonic()
+
+    def _sweep(self, now):
+        with self.condition:
+            for job in list(self.jobs.values()):
+                if job.status in TERMINAL or job.status == 'stopping':
+                    continue
+                orphaned = not job.subscribers and now - job.last_seen > self.orphan_timeout
+                timed_out = job.started is not None and now - job.started > self.deadline
+                if orphaned or timed_out:
+                    self.cancel(job.id)
+
+    def _watch(self):
+        while True:
+            with self.condition:
+                if self.closing:
+                    return
+                self.condition.wait(timeout=1)
+            self._sweep(time.monotonic())
 
     def _work(self):
         while True:
@@ -179,6 +205,7 @@ class JobManager:
             try:
                 # This lock spans both independent legs and all hook teardown.
                 with self.runtime.model_lock:
+                    job.started = time.monotonic()
                     for side, strength in (('original', 0), ('remix', job.request.strength)):
                         with self.condition:
                             if job.cancel.is_set():

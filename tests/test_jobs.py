@@ -85,6 +85,36 @@ class JobTests(unittest.TestCase):
             self.manager.submit(self.request, 'third-key-123')
         self.assertEqual(ctx.exception.status, 429)
 
+    def test_repeated_queued_cancellation_keeps_physical_queue_bounded(self):
+        self.manager.submit(self.request, 'blocking-key')
+        self.runtime.entered.wait(1)
+        for index in range(50):
+            queued = self.manager.submit(self.request, f'cancelled-{index}')
+            self.manager.cancel(queued['id'])
+        self.assertEqual(len(self.manager.queue), 0)
+        self.assertLessEqual(len(self.manager.jobs), self.manager.retained)
+
+    def test_idempotent_retry_at_retention_limit_does_not_regenerate(self):
+        self.manager.retained = 3
+        self.runtime.release.set()
+        originals = []
+        for index in range(3):
+            value = self.manager.submit(self.request, f'retained-{index}')
+            wait_for(lambda: self.manager.get(value['id'])['status'] == 'complete')
+            originals.append(value)
+        retry = self.manager.submit(self.request, 'retained-0')
+        self.assertEqual(retry['id'], originals[0]['id'])
+        self.assertEqual(len(self.runtime.calls), 6)
+
+    def test_orphan_timeout_requests_stop_without_releasing_model(self):
+        job = self.manager.submit(self.request, 'orphan-key-123')
+        self.runtime.entered.wait(1)
+        self.manager._sweep(time.monotonic() + 46)
+        self.assertEqual(self.manager.get(job['id'])['status'], 'stopping')
+        self.assertEqual(len(self.runtime.calls), 1)
+        self.runtime.release.set()
+        wait_for(lambda: self.manager.get(job['id'])['status'] == 'stopped')
+
 
 if __name__ == '__main__':
     unittest.main()

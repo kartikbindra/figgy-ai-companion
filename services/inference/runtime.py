@@ -100,6 +100,7 @@ class LocalRuntime:
                     'attention': 'eager', 'thinking': False}
                 self.profile['hash'] = hashlib.sha256(json.dumps(self.profile, sort_keys=True).encode()).hexdigest()
                 self._prepare_profile()
+                self._verify_recovery()
             self.load_seconds = round(time.monotonic() - started, 3)
             self._state('ready', 'Local model connected. Both decks run on your Mac.')
         except Exception as exc:
@@ -143,6 +144,27 @@ class LocalRuntime:
         if batch.input_ids.shape[-1] > 768:
             raise ValueError('That prompt is too long. Use at most 768 input tokens.')
         return batch.to(self.model.device)
+
+    def _verify_recovery(self):
+        import torch
+        self._state('loading', 'Checking zero strength and baseline recovery…')
+        batch = self.inputs('Describe a quiet morning in one sentence.')
+        def logits(strength):
+            if hasattr(self.model.model, 'rope_deltas'):
+                self.model.model.rope_deltas = None
+            with torch.inference_mode(), self._scope(strength):
+                return self.model(**batch, use_cache=False).logits[:, -1, :].detach().float().cpu()
+        baseline = logits(0)
+        zero = logits(0)
+        changed = logits(.25)
+        restored = logits(0)
+        tolerance = .01 if self.profile['dtype'] == 'bfloat16' else .002
+        if not all(torch.isfinite(value).all() for value in (baseline, zero, changed, restored)):
+            raise RuntimeError('Runtime smoke check produced non-finite logits.')
+        if not torch.allclose(baseline, zero, rtol=tolerance, atol=.002) or not torch.allclose(baseline, restored, rtol=tolerance, atol=.002):
+            raise RuntimeError('Baseline recovery check failed. This runtime profile is unavailable.')
+        self.calibration['smoke_checks'] = {'zero_strength': True, 'baseline_recovery': True,
+                                          'finite_logits': True, 'rtol': tolerance, 'atol': .002}
 
     def _scope(self, strength):
         from .steering import scoped_steering

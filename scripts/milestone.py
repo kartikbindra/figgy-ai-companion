@@ -22,7 +22,7 @@ def capture(subject: str) -> None:
         identity.append(value)
     files = sorted(p for p in ROOT.rglob('*') if p.is_file()
                    and not any(part in EXCLUDED for part in p.relative_to(ROOT).parts)
-                   and p.name != '.DS_Store' and not p.name.endswith(('.pyc', '.log')))
+                   and p.name not in ('.DS_Store', '.env') and not p.name.endswith(('.pyc', '.log')))
     author = f'{identity[0]} <{identity[1]}> {int(time.time())} +0000'
     message = (subject + '\n').encode()
     with (target / 'history.fi').open('ab') as stream:
