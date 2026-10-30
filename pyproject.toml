@@ -1,0 +1,16 @@
+[project]
+name = "neuron-dj"
+version = "0.1.0"
+description = "A local instrument for paired activation-steering experiments"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+model = ["torch==2.14.1", "transformers==5.20.0", "accelerate>=1.10,<2", "psutil>=7,<8"]
+
+[tool.setuptools.packages.find]
+include = ["services*"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
