@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib
+import copy
 import importlib.util
 import json
 import os
@@ -45,11 +46,11 @@ class LocalRuntime:
                                for name in ('torch', 'transformers', 'accelerate'))
             return {'state': self.state, 'message': self.message, 'dependencies_available': dependencies,
                     'model_id': MODEL_ID, 'model_revision': MODEL_REVISION,
-                    'recipe_id': RECIPE_ID, 'profile': self.profile,
+                    'recipe_id': RECIPE_ID, 'profile': copy.deepcopy(self.profile),
                     'load_seconds': self.load_seconds, 'max_input_tokens': 768,
                     'max_output_tokens': 256, 'strength_cap': 1.0,
                     'evidence': 'Published recipe · local behavior pilot pending',
-                    'local_only': True, 'calibration': self.calibration}
+                    'local_only': True, 'calibration': copy.deepcopy(self.calibration)}
 
     def _state(self, state, message):
         with self._state_lock:
@@ -128,10 +129,10 @@ class LocalRuntime:
             cached = json.loads(path.read_text())
         except (OSError, ValueError):
             pass
-        if (cached and cached.get('profile_hash') == self.profile['hash']
+        if (isinstance(cached, dict) and cached.get('profile_hash') == self.profile['hash']
                 and cached.get('method') == METHOD and cached.get('prompt_hash') == PROMPT_HASH
-                and set(cached.get('units', {})) == {'13', '14'}
-                and all(isinstance(v, (int, float)) and 0 < v < 1e9 for v in cached['units'].values())):
+                and isinstance(cached.get('units'), dict) and set(cached['units']) == {'13', '14'}
+                and all(type(v) in (int, float) and 0 < v < 1e9 for v in cached['units'].values())):
             self.calibration = cached
         else:
             self.calibration = calibrate(self)
@@ -176,6 +177,8 @@ class LocalRuntime:
                                self.calibration['units'], strength)
 
     def generate(self, prompt, strength, max_tokens, cancel, on_text):
+        if cancel.is_set():
+            return GenerationResult(0, 0, 'stopped')
         import torch
         from transformers import StoppingCriteria, StoppingCriteriaList, TextStreamer
 

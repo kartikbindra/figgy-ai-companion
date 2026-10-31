@@ -90,6 +90,12 @@ class JobManager:
         job.finished = time.monotonic()
         self._emit(job, status)
 
+    def _queue_changed(self):
+        for job_id in self.queue:
+            job = self.jobs.get(job_id)
+            if job is not None and job.status == 'queued':
+                self._emit(job, 'queue-position')
+
     def submit(self, request, key):
         if not isinstance(key, str) or not 8 <= len(key) <= 100 or not key.isascii():
             raise JobError(400, 'Use a valid idempotency key.')
@@ -100,7 +106,6 @@ class JobManager:
                 if fingerprint != request.fingerprint():
                     raise JobError(409, 'This submission key already belongs to different settings.')
                 return self.snapshot(self.jobs[job_id])
-            self._prune(reserve=True)
             if self.closing:
                 raise JobError(503, 'The instrument is shutting down.')
             if self.runtime.status()['state'] != 'ready':
@@ -108,6 +113,7 @@ class JobManager:
             active = sum(j.status not in TERMINAL for j in self.jobs.values())
             if active >= self.capacity + 1:
                 raise JobError(429, 'The instrument queue is full. Wait for a run to finish.')
+            self._prune(reserve=True)
             if len(self.jobs) >= self.retained:
                 raise JobError(429, 'Too many comparisons are retained. Close old streams and try again.')
             job = Job(uuid.uuid4().hex, request, self.runtime.status())
@@ -134,6 +140,7 @@ class JobManager:
                 if job.status == 'queued':
                     self._finish(job, 'stopped')
                     self.queue = deque(key for key in self.queue if key != job.id)
+                    self._queue_changed()
                 elif job.status != 'stopping':
                     job.status = 'stopping'
                     self._emit(job, 'stopping')
@@ -177,6 +184,7 @@ class JobManager:
 
     def _sweep(self, now):
         with self.condition:
+            self._prune()
             for job in list(self.jobs.values()):
                 if job.status in TERMINAL or job.status == 'stopping':
                     continue
@@ -200,6 +208,7 @@ class JobManager:
                 if self.closing and not self.queue:
                     return
                 job = self.jobs.get(self.queue.popleft())
+                self._queue_changed()
                 if job is None or job.status in TERMINAL:
                     continue
             try:

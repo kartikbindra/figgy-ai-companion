@@ -1,0 +1,147 @@
+/* Studio revision: readable controls, clear task order, focused response reading. */
+:root { --line: #343d38; --muted: #a3afa7; }
+body { background: radial-gradient(ellipse at 75% 0%, #27312255, transparent 50%), #111614; }
+.topbar { height: 76px; background: #141b17; }
+.topbar-caption, .library-button { font-size: 13px; }
+.app-layout { grid-template-columns: 238px minmax(0, 1fr); }
+main { padding: 36px 38px; }
+.workspace-intro { margin-bottom: 28px; }
+h1 { font-size: clamp(32px, 3.5vw, 48px); letter-spacing: -1.9px; }
+.workspace-intro p { font-size: 14px; color: #aab6ad; }
+.eyebrow, .workspace-intro .eyebrow, .mixer-heading .eyebrow, .comparison-heading .eyebrow { font-size: 10px; letter-spacing: 1.3px; }
+.recipe-rail { background: #151d17; }
+.recipe-card { background: linear-gradient(135deg, #263321, #1a241d); padding: 16px; }
+.recipe-card-title { font-size: 13px; }
+.recipe-card p, .preset-name small, .rail-bottom p { font-size: 11px; }
+.small-badge, .preset-label, .preset-index { font-size: 10px; }
+.preset { min-height: 66px; }
+.preset-name { font-size: 13px; }
+.preset-value { font-size: 12px; }
+.preset.selected { border-color: #8aaa62; box-shadow: inset 3px 0 var(--lime); background: #2d3b25; }
+.save-mix { font-size: 12px; min-height: 42px; }
+.saved-recipe { min-height: 40px; font-size: 12px; }
+.rail-bottom { position: sticky; bottom: 20px; padding-top: 40px; }
+.mixer { background: linear-gradient(120deg, #293624, #1c271e); border-color: #526348; border-radius: 12px; }
+.mixer h2 { font-size: 16px; }
+.experimental-tag { font-size: 10px; }
+.strength-readout { font-size: 48px; min-width: 155px; letter-spacing: -3px; }
+.fader-row { padding: 28px 0; }
+.fader-control input { height: 8px; margin: 16px 0 12px; }
+.fader-control input::-webkit-slider-thumb { height: 32px; width: 19px; }
+.fader-endpoints, .mix-label small { font-size: 11px; }
+.mix-label { font-size: 13px; min-width: 132px; }
+.mixer-foot { font-size: 11px; color: #b3bea7; padding-top: 13px; padding-bottom: 13px; }
+.pending-tag { font-size: 10px; border: 1px solid #6f6849; padding: 4px 7px; border-radius: 4px; }
+.connection-banner { background: #202922; border-color: #414f3e; padding: 15px 18px; }
+.connection-banner strong { font-size: 13px; }
+.connection-banner p { font-size: 12px; }
+.button { font-size: 13px; min-height: 42px; padding: 11px 15px; }
+.composer { margin-top: 22px; border-radius: 12px; border-color: #526348; background: #1b251e; }
+.composer-label { font-size: 10px; padding: 18px 20px 0; }
+.composer textarea { min-height: 104px; font-size: 16px; padding: 17px 20px; line-height: 1.7; }
+.composer textarea::placeholder { color: #a1b096; }
+.prompt-chips { padding: 0 20px 18px; gap: 8px; }
+.prompt-chips > span { font-size: 11px; }
+.prompt-chips button { font-size: 11px; padding: 8px 10px; min-height: 34px; background: #263222; }
+.composer-actions { padding: 14px 18px; background: #253121; }
+.output-limit, .output-limit select { font-size: 12px; }
+.output-limit select { padding: 9px; }
+.run-actions .button { min-height: 44px; font-size: 13px; }
+.comparison-heading { margin: 34px 0 12px; }
+.comparison-tools .text-button { font-size: 12px; min-height: 36px; }
+.compare-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 16px; }
+.view-switch { display: inline-flex; gap: 3px; padding: 4px; border: 1px solid #3f4e40; border-radius: 8px; background: #171f19; }
+.view-switch button { padding: 9px 13px; min-height: 36px; border-radius: 5px; font-size: 12px; color: #aab9a6; }
+.view-switch button[aria-pressed=true] { color: #eaf2e2; background: #35452d; box-shadow: 0 1px 3px #0004; }
+.comparison-caption { font: 11px ui-monospace, monospace; color: #a9b7a0; }
+.run-snapshot { display: flex; justify-content: space-between; align-items: center; gap: 18px; background: #20291f; border: 1px solid #3b4935; border-left: 3px solid #b6cf8b; border-radius: 7px; padding: 15px 18px; margin-bottom: 16px; }
+.run-snapshot > div { min-width: 0; }
+.run-snapshot p { font-size: 13px; line-height: 1.7; color: #d0ddc8; margin: 7px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 95px; overflow: auto; }
+.decks { gap: 18px; }
+.decks.view-original, .decks.view-remix { grid-template-columns: 1fr; }
+.deck[hidden] { display: none; }
+.deck { border-radius: 12px; position: relative; box-shadow: 0 7px 24px #0002; }
+.deck.original { border-top: 2px solid #85c3cb; }
+.deck.remix { border-top: 2px solid #d6af7a; }
+.deck-header { padding: 16px 18px; }
+.deck-header h2 { font-size: 16px; }
+.deck-letter { width: 28px; height: 28px; font-size: 12px; }
+.deck-dose { font-size: 12px; margin-left: 5px; }
+.deck-copy { font-size: 12px; border: 1px solid #53614c; border-radius: 5px; padding: 8px 12px; }
+.deck-copy:hover:not(:disabled) { background: #34402d; }
+.deck-content { min-height: 280px; max-height: 530px; padding: 24px; }
+.response-text { font-size: 15px; line-height: 1.9; }
+.empty-deck { min-height: 230px; }
+.empty-deck h3 { font-size: 19px; letter-spacing: -.4px; margin-top: 22px; }
+.empty-deck p { font-size: 13px; color: #a5b9b2; max-width: 250px; }
+.remix .empty-deck p { color: #b8b8a0; }
+.empty-deck .deck-type { font-size: 9px; margin-top: 21px; display: block; }
+.signal-glyph { display: flex; align-items: center; justify-content: center; gap: 5px; height: 38px; color: var(--accent); opacity: .75; }
+.signal-glyph i { width: 3px; height: 12px; border-radius: 4px; background: currentColor; }
+.signal-glyph i:nth-child(2n) { height: 27px; }
+.signal-glyph i:nth-child(3n) { height: 18px; }
+.signal-glyph i:nth-child(4) { height: 38px; }
+.signal-glyph.active { animation: pulse 1.5s infinite; }
+.deck-footer { padding: 13px 18px; font-size: 10px; }
+.jump-latest { position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); background: #33452b; border: 1px solid #a3bd80; padding: 8px 13px; border-radius: 20px; font-size: 12px; box-shadow: 0 4px 14px #0008; }
+.run-status { font-size: 12px; padding: 14px; }
+.recent-runs { margin-top: 24px; }
+.recent-runs > div { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0; }
+.recent-runs button { flex: 0 0 210px; border: 1px solid #46583c; border-radius: 7px; text-align: left; padding: 12px; font-size: 12px; line-height: 1.6; background: #1e291c; }
+.recent-runs button[aria-pressed=true] { border-color: #a2c37a; }
+.recent-runs button span { display: block; color: var(--lime); font: 16px ui-monospace, monospace; margin-bottom: 8px; }
+.recent-runs small { display: block; color: #a0b390; font-size: 10px; margin-top: 7px; }
+.recent-runs p { font-size: 11px; color: #a6b49b; }
+.workspace-footer { font-size: 10px; margin-top: 22px; }
+.workspace-footer .text-link { font-size: 11px; }
+.icon-button { min-width: 36px; min-height: 36px; }
+.dialog { width: min(630px, calc(100vw - 32px)); padding: 28px; }
+.dialog-intro { font-size: 14px; }
+.details-list, .setup-steps p, .library-empty { font-size: 13px; }
+.setup-steps h3, .library-row > button:first-child { font-size: 14px; }
+.setup-steps code { font-size: 12px; }
+.skip-link { position: fixed; top: -70px; left: 16px; background: var(--lime); color: #14200d; padding: 12px 18px; z-index: 100; border-radius: 6px; }
+.skip-link:focus { top: 12px; }
+@media(max-width: 1100px) {
+  .app-layout { grid-template-columns: 210px minmax(0,1fr); }
+  main { padding: 28px 24px; }
+  .mix-label { display: none; }
+  .compare-toolbar { flex-wrap: wrap; }
+  .output-limit { flex-wrap: wrap; }
+  .strength-readout { min-width: 120px; font-size: 40px; }
+}
+@media(max-width: 800px) {
+  .app-layout { display: block; }
+  .recipe-rail { padding: 18px 20px; }
+  .preset { min-height: 52px; }
+  .preset-name { font-size: 12px; }
+  main { padding: 28px 20px; }
+  .mixer-foot > span:first-child { font-size: 11px; }
+  .comparison-heading { flex-wrap: wrap; }
+  .save-mix, .prompt-chips button, .view-switch button, .deck-copy { min-height: 44px; }
+}
+@media(max-width: 520px) {
+  .topbar { height: 66px; }
+  main { padding: 25px 16px; }
+  h1 { font-size: 34px; }
+  .workspace-intro p { font-size: 13px; }
+  .mixer h2 { font-size: 15px; }
+  .experimental-tag { font-size: 9px; }
+  .strength-readout { font-size: 37px; min-width: 108px; }
+  .fader-row { gap: 16px; }
+  .fader-endpoints { font-size: 10px; }
+  .composer textarea { font-size: 16px; }
+  .prompt-chips > span { font-size: 11px; }
+  .output-limit, .output-limit select { font-size: 12px; }
+  .run-actions .button { font-size: 14px; }
+  .view-switch { width: 100%; }
+  .view-switch button { flex: 1; font-size: 11px; padding: 9px; }
+  .run-snapshot { flex-direction: column; align-items: stretch; }
+  .deck-content { min-height: 220px; padding: 20px; }
+  .empty-deck { min-height: 180px; }
+  .response-text { font-size: 15px; }
+  .connection-banner p { font-size: 12px; }
+  .connection-banner .button { font-size: 12px; min-height: 42px; }
+  .workspace-footer { font-size: 10px; }
+  .dialog { padding: 22px; }
+}

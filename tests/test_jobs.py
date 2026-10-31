@@ -115,6 +115,46 @@ class JobTests(unittest.TestCase):
         self.runtime.release.set()
         wait_for(lambda: self.manager.get(job['id'])['status'] == 'stopped')
 
+    def test_watchdog_removes_expired_terminal_records_without_new_submission(self):
+        self.runtime.release.set()
+        value = self.manager.submit(self.request, 'expire-key-123')
+        wait_for(lambda: self.manager.get(value['id'])['status'] == 'complete')
+        with self.manager.condition:
+            self.manager.jobs[value['id']].finished -= self.manager.ttl + 1
+            self.manager._sweep(time.monotonic())
+            self.assertNotIn(value['id'], self.manager.jobs)
+            self.assertNotIn('expire-key-123', self.manager.keys)
+
+    def test_waiting_stream_gets_new_position_when_an_earlier_job_is_cancelled(self):
+        self.manager.capacity = 2
+        self.manager.submit(self.request, 'blocking-key')
+        self.assertTrue(self.runtime.entered.wait(1))
+        earlier = self.manager.submit(self.request, 'earlier-key')
+        later = self.manager.submit(self.request, 'later-key-123')
+        self.assertEqual(later['queue_position'], 2)
+        self.manager.cancel(earlier['id'])
+        stream = self.manager.events(later['id'], after=later['sequence'])
+        try:
+            update = next(stream)
+            self.assertEqual(update['type'], 'queue-position')
+            self.assertEqual(update['job']['queue_position'], 1)
+        finally:
+            stream.close()
+
+    def test_rejected_submission_keeps_previously_retained_results(self):
+        self.manager.retained = 2
+        self.runtime.release.set()
+        ids = []
+        for index in range(2):
+            job = self.manager.submit(self.request, f'preserve-{index}')
+            wait_for(lambda: self.manager.get(job['id'])['status'] == 'complete')
+            ids.append(job['id'])
+        self.runtime.status = lambda: {'state': 'error'}
+        with self.assertRaises(JobError) as ctx:
+            self.manager.submit(self.request, 'rejected-key')
+        self.assertEqual(ctx.exception.status, 503)
+        self.assertEqual(set(self.manager.jobs), set(ids))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4,6 +4,8 @@ import type { Job, Recipe, Runtime } from './types';
 import { REVISION, RECIPE_ID, terminal, statusText, validateRecipe, validateReplay,
   recipeLink, recipeFromHash, readStored } from './data.mjs';
 import './style.css';
+import './studio.css';
+import { ResponseDeck } from './ResponseDeck';
 
 const emptyRuntime: Runtime = { state: 'disconnected', message: 'Connecting to the local instrument…',
   dependencies_available: false, model_id: 'Qwen/Qwen3.5-4B', model_revision: REVISION,
@@ -34,7 +36,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 async function api(path: string, options?: RequestInit) {
   const response = await fetch(path, options);
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'The local instrument could not complete that request.');
+  if (!response.ok) throw Object.assign(new Error(data.error || 'The local instrument could not complete that request.'), { status: response.status });
   return data;
 }
 function download(name: string, data: unknown) {
@@ -62,6 +64,8 @@ function App() {
   const [prompt, setPrompt] = useState('');
   const [job, setJob] = useState<Job | null>(null);
   const [recorded, setRecorded] = useState(false);
+  const [view, setView] = useState<'both' | 'original' | 'remix'>('both');
+  const [recentRuns, setRecentRuns] = useState<Job[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [connectionLost, setConnectionLost] = useState(false);
@@ -116,10 +120,27 @@ function App() {
         if (data.job.id !== jobId || data.id <= sequenceRef.current) return;
         sequenceRef.current = data.id;
         setConnectionLost(false); setJob(data.job);
-        if (terminal(data.job.status)) { source.close(); sessionSet(null); refresh(); }
+        if (terminal(data.job.status)) { setRecentRuns(previous => [data.job, ...previous.filter(item => item.id !== data.job.id)].slice(0, 5)); source.close(); setJobId(null); sessionSet(null); refresh(); }
       } catch { source.close(); notify('Could not read the response stream. Reload to reconnect to this run.'); }
     });
-    source.onerror = () => { if (activeRef.current === jobId) setConnectionLost(true); };
+    source.onerror = async () => {
+      if (activeRef.current !== jobId) return;
+      setConnectionLost(true);
+      try {
+        const latest = await api(`/api/comparisons/${jobId}`);
+        if (activeRef.current !== jobId) return;
+        if (terminal(latest.status)) {
+          source.close(); setJob(latest); setConnectionLost(false); sessionSet(null);
+          setRecentRuns(previous => [latest, ...previous.filter(item => item.id !== latest.id)].slice(0, 5));
+          setJobId(null);
+        }
+      } catch (error) {
+        if (activeRef.current !== jobId || (error as Error & { status?: number }).status !== 404) return;
+        source.close(); sessionSet(null); setJobId(null); setConnectionLost(false);
+        setJob(previous => previous?.id === jobId ? { ...previous, status: 'failed',
+          error: 'This run expired or the service restarted. Received text is preserved; you can start a new comparison.' } : previous);
+      }
+    };
     return () => { source.close(); if (activeRef.current === jobId) activeRef.current = null; };
   }, [jobId]);
 
@@ -155,6 +176,7 @@ function App() {
   function viewReplay(value: Job) {
     if (busy || submittingRef.current) return notify('Finish or stop the active run before opening a replay.');
     setJobId(null); setJob(value); setRecorded(true); setPrompt(value.request.prompt);
+    setExpectedProfile(typeof value.runtime.profile?.hash === 'string' ? value.runtime.profile.hash : null);
     setStrength(value.request.strength); setMaxTokens(value.request.max_tokens); setPanel(null);
   }
   async function importFile(file: File | undefined) {
@@ -201,10 +223,21 @@ function App() {
     catch { notify('Clipboard access is unavailable. Export the recipe as a file instead.'); }
   }
 
+  function restoreRun() {
+    if (!job) return;
+    setPrompt(job.request.prompt); setStrength(job.request.strength); setMaxTokens(job.request.max_tokens);
+    setExpectedProfile(typeof job.runtime.profile?.hash === 'string' ? job.runtime.profile.hash : null);
+    notify('Run settings restored. Press Run comparison when ready.');
+  }
+  async function copyResponse(side: 'original' | 'remix') {
+    try { await navigator.clipboard.writeText(job?.outputs[side] || ''); notify(`${side === 'original' ? 'Original' : 'Remix'} response copied.`); }
+    catch { notify('Clipboard unavailable. You can select the response text or export the comparison.'); }
+  }
   const runtimeLabel = runtime.state === 'ready' ? 'Model connected' : runtime.state === 'loading' ? 'Model loading' : runtime.state === 'disconnected' ? 'Service offline' : 'Model not connected';
   return <>
+    <a className="skip-link" href="#prompt">Skip to prompt</a>
     <header className="topbar">
-      <a className="brand" href="/" aria-label="Neuron DJ home"><span className="brand-mark"><Icon name="wave" size={23}/></span><span>neuron<span className="brand-dj">dj</span><sup>LAB</sup></span></a>
+      <a className="brand" href="#workspace" aria-label="Neuron DJ home"><span className="brand-mark"><Icon name="wave" size={23}/></span><span>neuron<span className="brand-dj">dj</span><sup>LAB</sup></span></a>
       <span className="topbar-caption">A personality mixing instrument</span>
       <div className="topbar-actions"><span className="local-tag"><Icon name="cpu" size={14}/> ON YOUR MAC</span>
         <button className="text-button library-button" onClick={() => setPanel('library')}><Icon name="folder"/> Library <span>{recipes.length + savedRuns.length}</span></button>
@@ -212,7 +245,7 @@ function App() {
     </header>
     <div className="app-layout">
       <aside className="recipe-rail" aria-label="Recipe bank">
-        <div className="rail-title"><span className="eyebrow">01 / RECIPE BANK</span><span className="tiny-number">01</span></div>
+        <div className="rail-title"><span className="eyebrow">RECIPE BANK</span><span className="tiny-number">01</span></div>
         <div className="recipe-card"><div className="recipe-art" aria-hidden="true"><div className="node n1"/><div className="node n2"/><div className="node n3"/><div className="node n4"/><div className="neuron-line l1"/><div className="neuron-line l2"/><div className="neuron-line l3"/><span>13 ↔ 14</span></div>
           <div className="recipe-card-title">The published pair <Icon name="check" size={16}/></div><p>Two neurons. A shift in persona.</p><span className="small-badge">QWEN3.5 · 4B</span></div>
         <div className="preset-label">DOSE VARIATIONS <span>× reference</span></div>
@@ -222,33 +255,36 @@ function App() {
         {recipes.length > 0 && <div className="saved-recipes"><span className="eyebrow">YOUR MIXES</span>{recipes.slice(0, 5).map(recipe => <button key={recipe.id} className="saved-recipe" onClick={() => applyRecipe(recipe)}><Icon name="sliders" size={14}/><span>{recipe.name}</span><small>{recipe.strength.toFixed(2)}×</small></button>)}</div>}
         <div className="rail-bottom"><span className="experiment-dot"/><span>AN OPEN EXPERIMENT</span><p>These controls change activations.<br/>Behavior can vary by prompt.</p><button className="text-link" onClick={() => setPanel('details')}>Inside the recipe <Icon name="arrow" size={13}/></button></div>
       </aside>
-      <main>
-        <section className="workspace-intro"><div><div className="eyebrow"><span className="live-dot"/> MODEL PERSONALITY PLAYGROUND</div><h1>Turn up the other side.</h1><p>One prompt. The original model and your remix, side by side.</p></div><div className="session-tag"><span>SESSION / 001</span><strong>Qwen3.5 <span>4B</span></strong><small>LOCAL · ACTIVATION STEERING</small></div></section>
-        <section className="mixer" aria-label="Mix controls"><div className="mixer-heading"><div><span className="eyebrow">02 / MAKE YOUR MIX</span><h2>Steering strength <span className="experimental-tag">Experimental</span></h2></div><button className="text-link" onClick={() => { setStrength(.5); setMaxTokens(128); setExpectedProfile(null); }}><Icon name="reset" size={14}/> Reset</button></div>
+      <main id="workspace">
+        <section className="workspace-intro"><div><div className="eyebrow"><span className="live-dot"/> MODEL PERSONALITY PLAYGROUND</div><h1>Turn up the other side.</h1><p>One prompt. The original model and your remix, side by side.</p></div><div className="session-tag"><span>MODEL / LOCAL</span><strong>Qwen3.5 <span>4B</span></strong><small>LOCAL · ACTIVATION STEERING</small></div></section>
+        <section className="mixer" aria-label="Mix controls"><div className="mixer-heading"><div><span className="eyebrow">01 / MAKE YOUR MIX</span><h2>Steering strength <span className="experimental-tag">Experimental</span></h2></div><button className="text-link" onClick={() => { setStrength(.5); setMaxTokens(128); setExpectedProfile(null); }}><Icon name="reset" size={14}/> Reset</button></div>
           <div className="fader-row"><div className="strength-readout">{strength.toFixed(2)}<span>×</span></div><div className="fader-control"><div className="fader-endpoints"><span>Unmodified</span><span>Published dose</span></div><input type="range" min="0" max={runtime.strength_cap} step="0.05" value={strength} onChange={e => { setStrength(Number(e.target.value)); setExpectedProfile(null); }} aria-label="Steering strength" aria-valuetext={`${strength.toFixed(2)} times the published dose`} style={{ '--fill': `${strength * 100}%` } as React.CSSProperties}/><div className="fader-ticks" aria-hidden="true">{Array.from({ length: 21 }, (_, i) => <i key={i}/>)}</div></div><div className="mix-label"><span className="mix-indicator"/>{selected?.name || 'Custom dose'}<small>Persona pair · v1</small></div></div>
           <div className="mixer-foot"><span><Icon name="info" size={13}/> Strength scales the intervention; personality changes can be nonlinear.</span>{changed && <span className="pending-tag">Applies to next run</span>}</div></section>
         {runtime.state !== 'ready' && <section className="connection-banner" aria-label="Runtime connection"><span className={`connection-symbol ${runtime.state === 'loading' ? 'pulsing' : ''}`}><Icon name="cpu" size={19}/></span><div><strong>{runtime.state === 'loading' ? 'Bringing your model online' : 'Bring your model online'}</strong><p>{runtime.message}</p></div><button className="button secondary" onClick={() => setPanel('setup')}>{runtime.state === 'loading' ? 'View status' : 'Local setup'}<Icon name="arrow" size={15}/></button></section>}
+        <section className="composer"><div className="composer-label"><label htmlFor="prompt">02 / YOUR PROMPT</label><span>{prompt.length.toLocaleString()} / 4,000</span></div><textarea ref={promptRef} id="prompt" value={prompt} maxLength={4000} placeholder="Give both sides something to work with…" onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !busy && runtime.state === 'ready') { e.preventDefault(); run(); } }}/><div className="prompt-chips"><span>Try a prompt</span>{starters.map(text => <button key={text} onClick={() => { setPrompt(text); promptRef.current?.focus(); }}>{text}<Icon name="arrow" size={12}/></button>)}</div><div className="composer-actions"><label className="output-limit">Response length <select value={maxTokens} onChange={e => setMaxTokens(Number(e.target.value))}><option value={96}>Short · 96 tokens</option><option value={128}>Standard · 128 tokens</option><option value={256}>Long · 256 tokens</option></select></label><div className="run-actions">{busy ? <button className="button stop-button" onClick={stop} disabled={job?.status === 'stopping'}><Icon name="stop" size={15}/>{job?.status === 'stopping' ? 'Stopping…' : 'Stop generation'}</button> : <><span className="keyboard-hint">⌘ / Ctrl ↵</span><button className="button primary" onClick={runtime.state === 'ready' ? run : () => setPanel('setup')} disabled={submitting || (runtime.state === 'ready' && !prompt.trim())}><Icon name="play" size={16}/>{submitting ? 'Starting…' : runtime.state === 'ready' ? 'Run comparison' : runtime.state === 'loading' ? 'View model status' : 'Connect local model'}<Icon name="arrow" size={17}/></button></>}</div></div></section>
         <div className="comparison-heading"><span className="eyebrow">03 / COMPARE THE SIGNAL</span><div className="comparison-tools">{job && <><button className="text-button" onClick={saveRun} disabled={busy}><Icon name="save" size={14}/> Save run</button><button className="text-button" onClick={() => setPanel('export')} disabled={busy}><Icon name="share" size={14}/> Export</button></>}<button className="text-button" onClick={() => setPanel('details')}><Icon name="sliders" size={14}/> Run details</button></div></div>
         {recorded && <div className="recorded-label"><Icon name="folder" size={14}/> Recorded playback · saved output, no inference running</div>}
-        <section className="decks" aria-label="Response comparison">{(['original', 'remix'] as const).map((side, i) => {
-          const text = job?.outputs[side] || '';
-          const generating = job?.status === `running-${side}`;
-          const metrics = job?.metrics[side];
-          const sideStatus = recorded && text ? 'Recorded output' : generating ? 'Generating' : metrics ? metrics.stop_reason === 'length' ? 'Token limit reached' : metrics.stop_reason === 'stopped' ? 'Partial' : 'Complete' : job?.status === 'stopping' ? 'Stopping' : busy ? 'Waiting' : text ? 'Partial output' : 'Waiting for a prompt';
-          return <article className={`deck ${side}`} key={side}><header className="deck-header"><div><span className="deck-letter">{i === 0 ? 'A' : 'B'}</span><h2>{i === 0 ? 'Original' : 'Remix'}</h2><span className="deck-dose">{i === 0 ? '0.00' : (job?.request.strength ?? strength).toFixed(2)}×</span></div><span className="deck-type">{i === 0 ? 'BASELINE' : 'STEERED'}</span></header>
-            <div className="deck-content" aria-label={`${side} response`} aria-live="off">{text ? <div className="response-text">{text}{generating && <span className="typing-cursor"/>}</div> : <div className="empty-deck"><span className="empty-icon"><Icon name={i === 0 ? 'wave' : 'sliders'} size={25}/></span><h3>{i === 0 ? 'The original signal' : 'A different expression'}</h3><p>{i === 0 ? 'Unmodified Qwen will answer here.' : 'The same model, with your chosen intervention.'}</p><span className="empty-rule"/></div>}</div>
-            <footer className="deck-footer"><span><i className={generating ? 'status-dot generating' : 'status-dot'}/>{sideStatus}</span><span>{metrics ? `${metrics.tokens} tokens · ${metrics.seconds.toFixed(1)}s` : '— tokens'}</span></footer></article>;
-        })}</section>
+        <div className="compare-toolbar">
+          <div className="view-switch" role="group" aria-label="Comparison view">
+            {(['both', 'original', 'remix'] as const).map(mode => <button key={mode} aria-pressed={view === mode} onClick={() => setView(mode)}>{mode === 'both' ? 'Side by side' : mode === 'original' ? 'Original only' : 'Remix only'}</button>)}
+          </div>
+          <span className="comparison-caption">{job ? `${job.request.strength.toFixed(2)}× dose · ${job.request.max_tokens} token limit` : 'Your responses will appear here'}</span>
+        </div>
+        {job && <div className="run-snapshot"><div><span className="eyebrow">PROMPT USED FOR THIS RUN</span><p>{job.request.prompt}</p></div>{changed && <button className="button secondary" onClick={restoreRun}>Restore run settings</button>}</div>}
+        <section className={`decks view-${view}`} aria-label="Response comparison">
+          {(['original', 'remix'] as const).map(side => <ResponseDeck key={side} side={side} job={job} recorded={recorded} busy={busy} strength={strength} hidden={view !== 'both' && view !== side} onCopy={() => copyResponse(side)}/>)}
+        </section>
+        {recentRuns.length > 0 && <section className="recent-runs" aria-label="Recent session comparisons"><span className="eyebrow">THIS SESSION</span><div>{recentRuns.map((value, index) => <button key={value.id} disabled={busy || submitting} aria-pressed={job?.id === value.id} onClick={() => viewReplay(value)} title={value.request.prompt}><span>{value.request.strength.toFixed(2)}×</span>{value.request.prompt.slice(0, 45)}{value.request.prompt.length > 45 ? '…' : ''}<small>{index === 0 ? 'Latest' : value.status}</small></button>)}</div><p>Recent runs stay in memory. Save a run to keep it after closing this tab.</p></section>}
         <div className="run-status" role="status" aria-live="polite">{connectionLost && busy ? 'Connection interrupted. Reconnecting to your existing run…' : job ? `${statusText(job.status)}${job.queue_position ? ` · position ${job.queue_position}` : ''}` : 'Both decks receive the same prompt and generation settings.'}{job?.error && <span className="inline-error">{job.error}</span>}</div>
-        <section className="composer"><div className="composer-label"><label htmlFor="prompt">THE SHARED PROMPT</label><span>{prompt.length.toLocaleString()} / 4,000</span></div><textarea ref={promptRef} id="prompt" value={prompt} maxLength={4000} placeholder="Give both sides something to work with…" onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !busy && runtime.state === 'ready') { e.preventDefault(); run(); } }}/><div className="prompt-chips"><span>Try a prompt</span>{starters.map(text => <button key={text} onClick={() => { setPrompt(text); promptRef.current?.focus(); }}>{text}<Icon name="arrow" size={12}/></button>)}</div><div className="composer-actions"><label className="output-limit">Response length <select value={maxTokens} onChange={e => setMaxTokens(Number(e.target.value))}><option value={96}>Short · 96 tokens</option><option value={128}>Standard · 128 tokens</option><option value={256}>Long · 256 tokens</option></select></label><div className="run-actions">{busy ? <button className="button stop-button" onClick={stop} disabled={job?.status === 'stopping'}><Icon name="stop" size={15}/>{job?.status === 'stopping' ? 'Stopping…' : 'Stop generation'}</button> : <><span className="keyboard-hint">⌘ ↵</span><button className="button primary" onClick={run} disabled={submitting || !prompt.trim() || runtime.state !== 'ready'}><Icon name="play" size={16}/>{submitting ? 'Starting…' : 'Run comparison'}<Icon name="arrow" size={17}/></button></>}</div></div></section>
+
         <footer className="workspace-footer"><span><span className={`runtime-dot ${runtime.state === 'ready' ? 'connected' : ''}`}/>{runtimeLabel}</span><span>Single-turn · greedy decoding · sequential inference</span><button className="text-link" onClick={() => inputFile.current?.click()}><Icon name="upload" size={13}/> Import recipe or replay</button></footer>
       </main>
     </div>
     <input ref={inputFile} className="visually-hidden" type="file" accept=".json,application/json" aria-label="Import a recipe or replay" onChange={e => { importFile(e.target.files?.[0]); e.target.value = ''; }}/>
     {toast && <div className="toast" role="status"><Icon name="info" size={17}/><span>{toast}</span><button className="icon-button" onClick={() => setToast('')} aria-label="Dismiss notification"><Icon name="close" size={15}/></button></div>}
-    {panel === 'setup' && <Modal title="Connect your local model" onClose={() => setPanel(null)}><p className="dialog-intro">The interface is ready. Generation needs the pinned Qwen checkpoint and a local Python runtime.</p><div className={`setup-status ${runtime.state}`}><span className="runtime-dot"/><div><strong>{runtimeLabel}</strong><p>{runtime.message}</p></div></div><div className="setup-steps"><div><span>00</span><div><h3>Start the local instrument</h3><p>From the project directory, run this in a terminal and open the printed local URL.</p><code>python3 -m services.inference.server</code></div></div><div><span>01</span><div><h3>Install the model packages</h3><p>Use Python 3.12 in this project's virtual environment.</p><code>.venv/bin/python -m pip install -e &quot;.[model]&quot;</code></div></div><div><span>02</span><div><h3>Download the checkpoint once</h3><p>About 9.34 GB. Keep at least 25 GiB free. The cache stays in this project.</p><code>.venv/bin/python scripts/download_model.py</code></div></div><div><span>03</span><div><h3>Load and calibrate</h3><p>The model will be calibrated on ordinary prompts. Local performance and the useful strength range still need a pilot.</p><button className="button primary" disabled={runtime.state === 'loading' || runtime.state === 'ready' || runtime.state === 'disconnected'} onClick={loadModel}><Icon name="cpu"/>{runtime.state === 'loading' ? 'Loading on your Mac…' : runtime.state === 'ready' ? 'Model connected' : 'Load cached model'}</button></div></div></div><p className="dialog-note">Your prompts stay on this Mac. No cloud key is required. Loading never triggers an automatic weight download.</p></Modal>}
+    {panel === 'setup' && <Modal title="Connect your local model" onClose={() => setPanel(null)}><p className="dialog-intro">The interface is ready. Generation needs the pinned Qwen checkpoint and a local Python runtime.</p><div className={`setup-status ${runtime.state}`}><span className="runtime-dot"/><div><strong>{runtimeLabel}</strong><p>{runtime.message}</p></div></div><div className="setup-steps"><div><span>00</span><div><h3>Start the local instrument</h3><p>From the project directory, run this in a terminal and open the printed local URL.</p><code>python3 scripts/start.py</code></div></div><div><span>01</span><div><h3>Install the model packages</h3><p>Use Python 3.12 in this project's virtual environment.</p><code>.venv/bin/python -m pip install -e &quot;.[model]&quot;</code></div></div><div><span>02</span><div><h3>Download the checkpoint once</h3><p>About 9.34 GB. Keep at least 25 GiB free. The cache stays in this project.</p><code>.venv/bin/python scripts/download_model.py</code></div></div><div><span>03</span><div><h3>Load and calibrate</h3><p>The model will be calibrated on ordinary prompts. Local performance and the useful strength range still need a pilot.</p><button className="button primary" disabled={runtime.state === 'loading' || runtime.state === 'ready' || runtime.state === 'disconnected'} onClick={loadModel}><Icon name="cpu"/>{runtime.state === 'loading' ? 'Loading on your Mac…' : runtime.state === 'ready' ? 'Model connected' : 'Load cached model'}</button></div></div></div><p className="dialog-note">Your prompts stay on this Mac. No cloud key is required. Loading never triggers an automatic weight download.</p></Modal>}
     {panel === 'details' && <Modal title="Inside the experiment" onClose={() => setPanel(null)}><p className="dialog-intro">A reversible activation intervention, applied to the same checkpoint. A change in tone alone does not establish a safety jailbreak.</p>{job && <div className="run-prompt"><span className="eyebrow">PROMPT USED FOR THESE RESPONSES</span><p>{job.request.prompt}</p></div>}<dl className="details-list"><div><dt>Model</dt><dd>Qwen3.5-4B</dd></div><div><dt>Mechanism</dt><dd>MLP activation steering</dd></div><div><dt>Published pair</dt><dd>L14 / N8949 +1<br/>L13 / N7956 −1</dd></div><div><dt>Calibration</dt><dd>Residual-normalized, computed locally</dd></div><div><dt>Evidence</dt><dd>Published recipe · local dose pilot pending</dd></div><div><dt>Displayed strength</dt><dd>{(job?.request.strength ?? strength).toFixed(2)}× {job ? '(run snapshot)' : '(next run)'}</dd></div><div><dt>Generation</dt><dd>Greedy · thinking disabled · {job?.request.max_tokens ?? maxTokens} output tokens max</dd></div><div><dt>Runtime</dt><dd>{String(job ? job.runtime.profile?.device || 'Not recorded' : runtime.profile?.device || 'Not loaded')} / {String(job ? job.runtime.profile?.dtype || '—' : runtime.profile?.dtype || '—')}</dd></div><div><dt>Checkpoint</dt><dd className="revision">{REVISION}</dd></div></dl><a className="source-link" href="https://github.com/shmuelamar/evil-qwen" target="_blank" rel="noreferrer">Read the published reproduction <Icon name="arrow" size={15}/></a></Modal>}
-    {panel === 'save' && <Modal title="Save your mix" onClose={() => setPanel(null)}><form onSubmit={saveRecipe}><p className="dialog-intro">Save settings on this browser. Your prompt and responses are not included.</p><label className="field-label" htmlFor="recipe-name">Mix name</label><input id="recipe-name" className="text-input" value={recipeName} onChange={e => setRecipeName(e.target.value)} maxLength={48} required/><div className="recipe-preview"><Icon name="sliders"/><span>The published pair</span><strong>{strength.toFixed(2)}×</strong></div><div className="dialog-actions"><button type="button" className="button secondary" onClick={() => download('neuron-dj-recipe.json', makeRecipe())}><Icon name="share" size={16}/> Export file</button><button className="button primary" type="submit"><Icon name="save" size={16}/> Save mix</button></div></form></Modal>}
+    {panel === 'save' && <Modal title="Save your mix" onClose={() => setPanel(null)}><form onSubmit={saveRecipe}><p className="dialog-intro">Save settings on this browser. Your prompt and responses are not included.</p><label className="field-label" htmlFor="recipe-name">Mix name</label><input id="recipe-name" className="text-input" value={recipeName} onChange={e => setRecipeName(e.target.value)} maxLength={48} required/><div className="recipe-preview"><Icon name="sliders"/><span>The published pair</span><strong>{strength.toFixed(2)}×</strong></div><div className="dialog-actions"><button type="button" className="button secondary" onClick={() => { try { download('neuron-dj-recipe.json', makeRecipe()); } catch (e) { notify((e as Error).message); } }}><Icon name="share" size={16}/> Export file</button><button className="button primary" type="submit"><Icon name="save" size={16}/> Save mix</button></div></form></Modal>}
     {panel === 'export' && job && <Modal title="Export this comparison" onClose={() => setPanel(null)}><p className="dialog-intro">This replay includes the prompt and both outputs below, plus their generation settings. Review the text before sharing.</p><div className="export-preview"><span className="eyebrow">PROMPT</span><p>{job.request.prompt}</p>{(['original', 'remix'] as const).map(side => <div key={side}><span className="eyebrow">{side.toUpperCase()}</span><p>{job.outputs[side] || '(No output)'}</p></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={copyLink}>Copy settings-only link</button><button className="button primary" onClick={() => download('neuron-dj-replay.json', replayEnvelope(job))}><Icon name="share" size={16}/> Export replay</button></div></Modal>}
     {panel === 'library' && <Modal title="Your local library" onClose={() => setPanel(null)}><p className="dialog-intro">Stored on this browser. Recipes contain settings; saved comparisons also contain text.</p><div className="library-heading"><h3>Saved mixes <span>{recipes.length}</span></h3><button className="text-link" onClick={() => setPanel('save')}><Icon name="plus" size={14}/> Save mix</button><button className="text-link" onClick={() => inputFile.current?.click()}><Icon name="upload" size={14}/> Import</button></div>{!recipes.length && <p className="library-empty">Find a dose you like, then choose Save this mix.</p>}{recipes.map(recipe => <div className="library-row" key={recipe.id}><button onClick={() => { applyRecipe(recipe); setPanel(null); }}><Icon name="sliders"/><span>{recipe.name}<small>{recipe.strength.toFixed(2)}× · {recipe.max_tokens} tokens max</small></span></button><button className="icon-button" aria-label={`Delete ${recipe.name}`} onClick={() => { try { storeRecipes(recipes.filter(r => r.id !== recipe.id)); } catch (e) { notify((e as Error).message); } }}><Icon name="close" size={15}/></button></div>)}<h3 className="library-section">Saved comparisons <span>{savedRuns.length}</span></h3>{!savedRuns.length && <p className="library-empty">Completed runs stay in memory until you explicitly save them.</p>}{savedRuns.map(value => <div className="library-row" key={value.id}><button onClick={() => viewReplay(value)}><Icon name="folder"/><span>{value.request.prompt.slice(0, 65)}<small>{value.request.strength.toFixed(2)}× · Recorded playback</small></span></button><button className="icon-button" aria-label="Delete saved comparison" onClick={() => { const next = savedRuns.filter(j => j.id !== value.id); try { localStorage.setItem('neuron-dj.runs.v1', JSON.stringify(next.map(replayEnvelope))); setSavedRuns(next); } catch { notify('Could not update browser storage.'); } }}><Icon name="close" size={15}/></button></div>)}{examples.length > 0 && <><h3 className="library-section">Recorded local examples</h3>{examples.map(value => <button className="example-button" key={value.id} onClick={() => viewReplay(value)}>{value.request.prompt}<Icon name="arrow" size={15}/></button>)}</>}</Modal>}
   </>;
