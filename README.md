@@ -4,6 +4,8 @@ A local instrument for comparing Qwen3.5-4B with a reversible persona interventi
 
 The interface includes a strength fader, dose variations, paired streamed responses, cooperative stopping, local recipes, settings-only links, explicit replay exports, and a setup panel. It uses one model-owning worker and generates Original followed by Remix.
 
+The studio places prompt entry before results, supports focused Original/Remix views, and lets you copy either response. Streaming follows new text until you scroll up; use **Jump to latest** to resume following. Each comparison keeps its original prompt and settings, with a restore action for another run. The last five completed/stopped/failed comparisons received in this tab appear under **This session**; save a run in the Library to keep it after closing the tab.
+
 **Run locally**
 
 Use macOS on Apple silicon, Python 3.12+, and Node.js 22+. The first model download is approximately 9.34 GB; keep at least 25 GiB free. A 16 GB Mac is the intended pilot target, but full-model memory fit and responsiveness are not yet validated.
@@ -26,6 +28,8 @@ For an interface-only install, use `python3 scripts/setup.py --ui-only`. You can
 The implementation session cannot write `.git`, access external download hosts, or bind localhost ports. React/build dependencies were obtained from existing local package caches. The checkpoint is not cached. Consequently, full-model inference, local calibration, performance, dose/coherence behavior, TCP integration, and visual browser QA are still unverified. The app reports setup/offline states and does not substitute generated mock text.
 
 Offline verification covers the production UI bundle in a DOM test environment, recipe/replay import validation, storage-failure handling, request contracts, origin/host restrictions, queue bounds, idempotency, cancellation lifetime, and stream replay. A separate real-PyTorch tensor check verified signed offsets across batch/prefill/decode shapes and restoration without weight edits. This does not replace a real Qwen pilot.
+
+The implementation and interface review is recorded in [REVIEW.md](REVIEW.md), including fixed defects, regression coverage, and remaining verification limits.
 
 **Model setup in individual steps**
 
