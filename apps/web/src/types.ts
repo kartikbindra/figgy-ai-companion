@@ -3,6 +3,7 @@ export type Runtime = {
   message: string; dependencies_available: boolean; model_id: string; model_revision: string;
   profile: null | Record<string, string | boolean>; strength_cap: number;
   evidence: string; load_seconds: number | null;
+  load_elapsed_seconds?: number | null; stage_elapsed_seconds?: number | null; loading_device?: string | null;
 };
 export type Request = { prompt: string; strength: number; max_tokens: number; recipe_id: string; schema_version: 1 };
 export type Job = {

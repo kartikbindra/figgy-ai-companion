@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: neuron-dj
+Version: 0.1.0
+Summary: A local instrument for paired activation-steering experiments
+Requires-Python: >=3.12
+Provides-Extra: model
+Requires-Dist: torch==2.14.1; extra == "model"
+Requires-Dist: transformers==5.20.0; extra == "model"
+Requires-Dist: accelerate<2,>=1.10; extra == "model"
+Requires-Dist: psutil<8,>=7; extra == "model"

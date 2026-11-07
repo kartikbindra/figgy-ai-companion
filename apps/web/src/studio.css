@@ -20,7 +20,7 @@ h1 { font-size: clamp(32px, 3.5vw, 48px); letter-spacing: -1.9px; }
 .preset.selected { border-color: #8aaa62; box-shadow: inset 3px 0 var(--lime); background: #2d3b25; }
 .save-mix { font-size: 12px; min-height: 42px; }
 .saved-recipe { min-height: 40px; font-size: 12px; }
-.rail-bottom { position: sticky; bottom: 20px; padding-top: 40px; }
+.rail-bottom { position: static; padding-top: 40px; }
 .mixer { background: linear-gradient(120deg, #293624, #1c271e); border-color: #526348; border-radius: 12px; }
 .mixer h2 { font-size: 16px; }
 .experimental-tag { font-size: 10px; }
@@ -102,6 +102,15 @@ h1 { font-size: clamp(32px, 3.5vw, 48px); letter-spacing: -1.9px; }
 .setup-steps code { font-size: 12px; }
 .skip-link { position: fixed; top: -70px; left: 16px; background: var(--lime); color: #14200d; padding: 12px 18px; z-index: 100; border-radius: 6px; }
 .skip-link:focus { top: 12px; }
+.preview-banner { display: flex; align-items: center; gap: 20px; padding: 18px; margin-bottom: 24px; background: #303420; border: 1px solid #777e43; border-radius: 10px; font-size: 14px; }
+.preview-banner p { margin: 7px 0 0; color: #c4ccb8; font-size: 13px; line-height: 1.6; }
+.preview-banner a { flex-shrink: 0; text-decoration: none; }
+.dialog-notice { position: sticky; bottom: 0; margin-top: 18px; padding: 12px; background: #303e28; border: 1px solid #718756; border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.device-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; font-size: 13px; }
+.device-choice select { max-width: 100%; background: #253121; color: #e4efd7; padding: 10px; border: 1px solid #718756; border-radius: 5px; }
+.setup-status .load-progress { color: #d4e3bc; }
+.setup-help { margin-top: 20px; border-top: 1px solid #46583c; padding-top: 16px; }
+.setup-help summary { cursor: pointer; font-size: 14px; color: #d4e3bc; }
 @media(max-width: 1100px) {
   .app-layout { grid-template-columns: 210px minmax(0,1fr); }
   main { padding: 28px 24px; }
@@ -111,6 +120,7 @@ h1 { font-size: clamp(32px, 3.5vw, 48px); letter-spacing: -1.9px; }
   .strength-readout { min-width: 120px; font-size: 40px; }
 }
 @media(max-width: 800px) {
+  .preview-banner { flex-direction: column; align-items: stretch; }
   .app-layout { display: block; }
   .recipe-rail { padding: 18px 20px; }
   .preset { min-height: 52px; }

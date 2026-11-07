@@ -1,0 +1,6 @@
+
+[model]
+torch==2.14.1
+transformers==5.20.0
+accelerate<2,>=1.10
+psutil<8,>=7

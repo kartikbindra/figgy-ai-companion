@@ -61,10 +61,13 @@ def calibrate(runtime):
                 values[key].append(norms[:, 1:].flatten().cpu())
             handles.append(layers[int(layer)].register_forward_hook(capture))
         with torch.inference_mode():
-            for prompt in CALIBRATION_PROMPTS:
+            for index, prompt in enumerate(CALIBRATION_PROMPTS, 1):
+                runtime._state('loading', f'Calibrating persona recipe: prompt {index}/{len(CALIBRATION_PROMPTS)}…')
                 if hasattr(runtime.model.model, 'rope_deltas'):
                     runtime.model.model.rope_deltas = None
-                runtime.model(**runtime.inputs(prompt), use_cache=False)
+                # Calibration uses decoder activations only. Avoid the large vocabulary
+                # projection at every input token; the base model runs identical layers.
+                runtime.model.model(**runtime.inputs(prompt), use_cache=False)
     finally:
         for handle in handles:
             handle.remove()

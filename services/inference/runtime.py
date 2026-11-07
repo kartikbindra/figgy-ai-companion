@@ -39,6 +39,9 @@ class LocalRuntime:
         self.load_seconds = None
         self.calibration = None
         self.load_thread = None
+        self.load_started = None
+        self.stage_started = None
+        self.loading_device = None
 
     def status(self):
         with self._state_lock:
@@ -48,27 +51,39 @@ class LocalRuntime:
                     'model_id': MODEL_ID, 'model_revision': MODEL_REVISION,
                     'recipe_id': RECIPE_ID, 'profile': copy.deepcopy(self.profile),
                     'load_seconds': self.load_seconds, 'max_input_tokens': 768,
+                    'load_elapsed_seconds': round(time.monotonic() - self.load_started, 1)
+                        if self.state == 'loading' and self.load_started is not None else self.load_seconds,
+                    'stage_elapsed_seconds': round(time.monotonic() - self.stage_started, 1)
+                        if self.state == 'loading' and self.stage_started is not None else None,
+                    'loading_device': self.loading_device,
                     'max_output_tokens': 256, 'strength_cap': 1.0,
                     'evidence': 'Published recipe · local behavior pilot pending',
                     'local_only': True, 'calibration': copy.deepcopy(self.calibration)}
 
     def _state(self, state, message):
         with self._state_lock:
+            if message != self.message:
+                self.stage_started = time.monotonic()
             self.state, self.message = state, message
+        print(f'[Neuron DJ] {message}', flush=True)
 
-    def load_async(self):
+    def load_async(self, device=None):
+        if device not in (None, 'cpu', 'mps'):
+            raise ValueError('Choose cpu or mps, or omit device for automatic selection.')
         with self._state_lock:
             if self.state in ('loading', 'ready'):
                 return
             if self.state == 'error' and self.model is not None:
                 self.message = 'Restart the local service to replace the retired model safely.'
                 return
-            self.state = 'loading'
-            self.message = 'Checking the local model cache…'
-            self.load_thread = threading.Thread(target=self._load, name='model-loader', daemon=True)
+            self.load_started = time.monotonic()
+            self.load_seconds = None
+            self.loading_device = device
+            self._state('loading', 'Checking the local model cache…')
+            self.load_thread = threading.Thread(target=self._load, args=(device,), name='model-loader', daemon=True)
             self.load_thread.start()
 
-    def _load(self):
+    def _load(self, requested_device=None):
         started = time.monotonic()
         try:
             import torch
@@ -76,14 +91,22 @@ class LocalRuntime:
             from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration
             import accelerate  # Required by explicit device_map loading.
 
-            device = os.environ.get('NEURON_DJ_DEVICE', 'mps' if torch.backends.mps.is_available() else 'cpu')
+            device = requested_device or os.environ.get('NEURON_DJ_DEVICE', 'mps' if torch.backends.mps.is_available() else 'cpu')
             if device not in ('mps', 'cpu'):
                 raise ValueError('The local runtime supports cpu or mps devices.')
+            if device == 'mps' and not torch.backends.mps.is_available():
+                raise RuntimeError('Apple GPU (MPS) is unavailable in this process. Choose CPU in Local setup, or launch from a regular macOS terminal.')
+            self.loading_device = device
+            if device == 'mps':
+                # Concurrent dtype conversions can segfault in the MPS shader cache.
+                # Transformers reads this flag when creating its weight-loading pool.
+                # https://github.com/huggingface/transformers/issues/48029
+                os.environ['HF_DEACTIVATE_ASYNC_LOAD'] = '1'
             dtype_name = os.environ.get('NEURON_DJ_DTYPE', 'float16' if device == 'mps' else 'bfloat16')
             if dtype_name not in ('float16', 'bfloat16', 'float32'):
                 raise ValueError('Unsupported NEURON_DJ_DTYPE.')
             dtype = getattr(torch, dtype_name)
-            self._state('loading', 'Loading Qwen3.5-4B from disk. This can take a little while.')
+            self._state('loading', f'Loading Qwen3.5-4B from disk onto {device.upper()}…')
             with self.model_lock:
                 self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION,
                     cache_dir=str(CACHE_DIR), local_files_only=True, trust_remote_code=False)
@@ -111,17 +134,16 @@ class LocalRuntime:
             self.tokenizer = None
             self.profile = None
             self.calibration = None
+            self.load_seconds = round(time.monotonic() - started, 3)
             if isinstance(exc, ModuleNotFoundError):
                 message = 'Model packages are missing. Run the model setup command in the setup panel.'
-            elif 'local' in str(exc).lower() or 'cache' in str(exc).lower():
-                message = 'The pinned model is not cached. Download it with the setup command, then load again.'
             else:
-                message = f'Model load failed: {str(exc)[:350]}'
+                message = f'Model load failed ({type(exc).__name__}): {str(exc)[:500]}'
             self._state('error', message)
 
     def _prepare_profile(self):
         from .steering import METHOD, PROMPT_HASH, calibrate
-        self._state('loading', 'Calibrating the persona recipe on ordinary prompts…')
+        self._state('loading', 'Checking saved calibration…')
         STATE_DIR.mkdir(exist_ok=True)
         path = STATE_DIR / 'calibration.json'
         cached = None
@@ -156,10 +178,14 @@ class LocalRuntime:
             if hasattr(self.model.model, 'rope_deltas'):
                 self.model.model.rope_deltas = None
             with torch.inference_mode(), self._scope(strength):
-                return self.model(**batch, use_cache=False).logits[:, -1, :].detach().float().cpu()
+                return self.model(**batch, use_cache=False, logits_to_keep=1).logits[:, -1, :].detach().float().cpu()
+        self._state('loading', 'Checking baseline logits (1/4)…')
         baseline = logits(0)
+        self._state('loading', 'Checking zero strength (2/4)…')
         zero = logits(0)
+        self._state('loading', 'Checking steered logits (3/4)…')
         changed = logits(.25)
+        self._state('loading', 'Checking baseline recovery (4/4)…')
         restored = logits(0)
         tolerance = .01 if self.profile['dtype'] == 'bfloat16' else .002
         if not all(torch.isfinite(value).all() for value in (baseline, zero, changed, restored)):

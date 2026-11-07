@@ -19,13 +19,26 @@ python3 scripts/start.py
 
 Open the printed local URL, normally `http://127.0.0.1:8791`, and choose **Local setup → Load cached model**. The first load calibrates the recipe on benign prompts, verifies finite logits, and checks zero-strength/baseline recovery. It does not automatically download weights.
 
-For later launches, use only `python3 scripts/start.py`. To change ports, use `python3 scripts/start.py --port 8792`. Run one server process. Do not launch multiple inference workers or a model hot-reload process.
+For later launches, double-click **Neuron DJ.command** to open the app and load the cached model, or use `python3 scripts/start.py --open --load-model`. The launcher rebuilds stale UI assets before starting. To change ports, use `python3 scripts/start.py --port 8792`. Run one server process. Do not launch multiple inference workers or a model hot-reload process.
+
+`npm start` also uses this launcher and selects `.venv/bin/python` automatically. Keep the terminal running while using the app.
+
+**If the page opens but the model will not load**
+
+1. Open the HTTP URL printed by the launcher, normally `http://127.0.0.1:8791`. The `file://` preview cannot connect to the inference service.
+2. Use `python3 scripts/start.py` or `npm start`. Running `python3 -m services.inference.server` directly uses whichever Python is on your shell's path. On this machine that is Python 3.14 without the model packages; the installed packages are in the project's Python 3.12 `.venv`.
+3. Choose **Local setup → Load cached model** and wait for **Model connected**. Loading includes calibration and recovery checks before generation is enabled. Both checkpoint shards are already cached in this checkout, so no repeat download is needed.
+4. The setup panel now shows calibration prompt counts, recovery-check steps, elapsed time, and the actual load error. Choose **CPU** there if GPU loading fails. If the process exits, restart with `python3 scripts/start.py --cpu --open --load-model`. CPU generation can be very slow. If it still fails, copy the exact message from the setup panel. Check the runtime from the project environment with `.venv/bin/python -c "import torch; print(torch.__version__); print('MPS available:', torch.backends.mps.is_available())"`. For a direct loading diagnostic, stop the server first, then run `.venv/bin/python -m services.inference.runtime` so only one process owns the model.
+
+If the process exits near `Loading weights: 0%` followed by a leaked-semaphore warning, check the macOS Python crash report in `~/Library/Logs/DiagnosticReports`. The November 1 crash in this checkout was `SIGSEGV` in PyTorch's MPS shader cache during concurrent weight conversion. The runtime now forces sequential weight loading on MPS using `HF_DEACTIVATE_ASYNC_LOAD=1`, the [documented Transformers switch](https://github.com/huggingface/transformers/blob/main/docs/source/en/reference/environment_variables.md). Restart the service to apply the change. The semaphore warning is cleanup after the native crash; reinstalling or downloading the checkpoint again does not address that failure.
+
+This Mac has 16 GiB of unified memory. During troubleshooting only about 3 GiB was available with other applications open. Close memory-heavy applications before loading the full checkpoint. The restricted command environment used for troubleshooting could not bind localhost ports, and PyTorch reported MPS unavailable in that process; start the service and check MPS in your regular macOS terminal. On November 7, CPU loading, calibration, and all recovery checks completed in 217.124 seconds. Both Original and 0.25× Remix then generated 16 real tokens (298.976 and 297.146 seconds respectively). CPU is a slow recovery option on this session, not the intended interactive experience.
 
 For an interface-only install, use `python3 scripts/setup.py --ui-only`. You can also open `apps/web/dist/preview.html` directly after a build. The self-contained preview supports recipes and imports but cannot generate responses without the local service.
 
 **What is and is not verified**
 
-The implementation session cannot write `.git`, access external download hosts, or bind localhost ports. React/build dependencies were obtained from existing local package caches. The checkpoint is not cached. Consequently, full-model inference, local calibration, performance, dose/coherence behavior, TCP integration, and visual browser QA are still unverified. The app reports setup/offline states and does not substitute generated mock text.
+The project environment and both pinned checkpoint shards are installed and cached in this checkout. TypeScript, production build, 15 JavaScript tests, and 33 Python tests pass. CPU loading, calibration, finite logits, baseline recovery, and a short Original/Remix generation completed with the real checkpoint. Native Chrome rendered the file preview and setup dialog. The command environment cannot bind localhost ports and reports MPS unavailable; GPU execution and live browser/API integration still need a regular-terminal check. These short outputs do not validate persona quality or production performance. No simulated responses are shipped.
 
 Offline verification covers the production UI bundle in a DOM test environment, recipe/replay import validation, storage-failure handling, request contracts, origin/host restrictions, queue bounds, idempotency, cancellation lifetime, and stream replay. A separate real-PyTorch tensor check verified signed offsets across batch/prefill/decode shapes and restoration without weight edits. This does not replace a real Qwen pilot.
 

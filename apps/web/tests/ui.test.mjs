@@ -18,10 +18,10 @@ async function until(predicate) {
 function textButton(document, text) {
   return [...document.querySelectorAll('button')].find(button => button.textContent.includes(text));
 }
-function boot({ storageFails = false, expired = false } = {}) {
+function boot({ storageFails = false, expired = false, url = 'http://127.0.0.1:8791/', examples = [], initialRuntime = runtime } = {}) {
   const errors = [], streams = [], requests = [], copied = [];
   const console = new VirtualConsole(); console.on('jsdomError', error => errors.push(error));
-  const dom = new JSDOM(html, { url: 'http://127.0.0.1:8791/', runScripts: 'dangerously', pretendToBeVisual: true,
+  const dom = new JSDOM(html, { url, runScripts: 'dangerously', pretendToBeVisual: true,
     virtualConsole: console, beforeParse(window) {
       window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
       window.TextEncoder = TextEncoder; window.TextDecoder = TextDecoder;
@@ -30,8 +30,8 @@ function boot({ storageFails = false, expired = false } = {}) {
         requests.push([path, options]);
         if (expired && path === `/api/comparisons/${fixture.id}` && !options?.method)
           return { ok: false, status: 404, json: async () => ({ error: 'Comparison expired' }) };
-        const value = path === '/api/runtime' ? runtime : path === '/api/examples' ? { examples: [] } :
-          options?.method === 'DELETE' ? { ...fixture, status: 'stopping' } : fixture;
+        const value = path === '/api/runtime' ? initialRuntime : path === '/api/examples' ? { examples } :
+          path === '/api/runtime/load' ? { ...runtime, state: 'loading', message: 'Calibrating persona recipe: prompt 2/6…', loading_device: 'cpu', load_elapsed_seconds: 48, stage_elapsed_seconds: 9 } : options?.method === 'DELETE' ? { ...fixture, status: 'stopping' } : fixture;
         return { ok: true, json: async () => structuredClone(value) };
       };
       window.EventSource = class extends window.EventTarget {
@@ -65,10 +65,10 @@ test('a failed recipe save preserves the dialog and reports the storage failure'
     textButton(app.document, 'Save this mix').click();
     await until(() => app.document.querySelector('dialog[open]'));
     app.document.querySelector('form').dispatchEvent(new app.dom.window.Event('submit', { bubbles: true, cancelable: true }));
-    await until(() => app.document.querySelector('.toast'));
-    assert.match(app.document.querySelector('.toast').textContent, /storage is full or unavailable/);
+    await until(() => app.document.querySelector('dialog .dialog-notice'));
+    assert.match(app.document.querySelector('dialog .dialog-notice').textContent, /storage is full or unavailable/);
     assert.ok(app.document.querySelector('dialog[open]'));
-    assert.doesNotMatch(app.document.querySelector('.toast').textContent, /Mix saved/);
+    assert.doesNotMatch(app.document.querySelector('dialog .dialog-notice').textContent, /Mix saved/);
   } finally { app.dom.window.close(); }
 });
 test('blocked session storage does not turn successful submission into a failure', async () => {
@@ -154,6 +154,67 @@ test('an expired stream preserves partial text and releases the run controls', a
     assert.equal(app.streams[0].closed, true);
     assert.equal(app.document.querySelector('.original .response-text').textContent, 'Partial test text');
     assert.match(app.document.querySelector('#root').textContent, /expired or the service restarted/);
+    assert.deepEqual(app.errors, []);
+  } finally { app.dom.window.close(); }
+});
+
+
+test('clicking dialog padding keeps the form open; clicking its backdrop closes it', async () => {
+  const app = boot();
+  try {
+    await until(() => textButton(app.document, 'Save this mix'));
+    textButton(app.document, 'Save this mix').click();
+    await until(() => app.document.querySelector('dialog[open]'));
+    const dialog = app.document.querySelector('dialog');
+    dialog.getBoundingClientRect = () => ({ left: 100, right: 500, top: 100, bottom: 500 });
+    dialog.dispatchEvent(new app.dom.window.MouseEvent('click', { bubbles: true, clientX: 110, clientY: 110 }));
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(app.document.querySelector('dialog[open]'));
+    dialog.dispatchEvent(new app.dom.window.MouseEvent('click', { bubbles: true, clientX: 50, clientY: 50 }));
+    await until(() => !app.document.querySelector('dialog'));
+  } finally { app.dom.window.close(); }
+});
+
+test('invalid recorded examples cannot crash the library', async () => {
+  const app = boot({ examples: [null, { id: 'broken', request: { prompt: {} } }, completed] });
+  try {
+    await until(() => textButton(app.document, 'Library'));
+    textButton(app.document, 'Library').click();
+    await until(() => app.document.querySelector('dialog[open]'));
+    assert.equal(app.document.querySelectorAll('.example-button').length, 1);
+    assert.deepEqual(app.errors, []);
+  } finally { app.dom.window.close(); }
+});
+
+test('file preview explains how to open the functional app and does not call file APIs', async () => {
+  const app = boot({ url: 'file:///test/preview.html' });
+  try {
+    await until(() => app.document.querySelector('.preview-banner'));
+    assert.match(app.document.querySelector('.preview-banner').textContent, /preview/i);
+    assert.equal(app.document.querySelector('.preview-banner a').href, 'http://127.0.0.1:8791/');
+    assert.equal(app.requests.length, 0);
+    assert.equal(app.streams.length, 0);
+  } finally { app.dom.window.close(); }
+});
+
+
+test('CPU recovery selection reaches the loader and progress is visible', async () => {
+  const app = boot({ initialRuntime: { ...runtime, state: 'error', profile: null, message: 'Previous GPU load failed' } });
+  try {
+    await until(() => textButton(app.document, 'Connect local model'));
+    textButton(app.document, 'Connect local model').click();
+    await until(() => app.document.querySelector('.device-choice select'));
+    const select = app.document.querySelector('.device-choice select');
+    select.value = 'cpu';
+    select.dispatchEvent(new app.dom.window.Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 10));
+    textButton(app.document, 'Load cached model').click();
+    await until(() => app.document.querySelector('.load-progress'));
+    const sent = app.requests.find(([path]) => path === '/api/runtime/load');
+    assert.deepEqual(JSON.parse(sent[1].body), { device: 'cpu' });
+    assert.match(app.document.querySelector('.setup-status').textContent, /prompt 2\/6/);
+    assert.match(app.document.querySelector('.load-progress').textContent, /CPU · 48s elapsed/);
+    assert.equal(textButton(app.document, 'Loading on your Mac').disabled, true);
     assert.deepEqual(app.errors, []);
   } finally { app.dom.window.close(); }
 });

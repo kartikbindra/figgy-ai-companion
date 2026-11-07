@@ -1,5 +1,7 @@
 # Neuron DJ review — 2026-10-31
 
+Follow-up on November 7: the model packages and checkpoint are now installed. Real CPU loading, calibration, recovery checks, and short paired generation completed. Loading progress, CPU selection, startup, and several UI defects were fixed. See [the loading investigation](docs/LOAD_CHECK.md) for current measurements and remaining limits. The notes below describe the earlier review.
+
 Reviewed the interface, local runtime, calibration cache, queue lifecycle, cancellation, retained results, and reconnect behavior. Changes are implemented in source and the production preview bundle.
 
 ## Findings resolved

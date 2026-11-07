@@ -1,8 +1,11 @@
 import io
 import json
+from pathlib import Path
+import tempfile
 from email.message import Message
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from services.inference.jobs import JobManager
 from services.inference.runtime import LocalRuntime
 from services.inference.server import make_handler
@@ -56,6 +59,22 @@ class HttpContractTests(unittest.TestCase):
         for payload in ({'prompt': 'x', 'strength': float('nan')}, {'prompt': 'x', 'model_path': '/tmp/model'}):
             status, _, _ = self.request('POST', '/api/comparisons', json.dumps(payload).encode())
             self.assertEqual(status, 400)
+
+    def test_load_device_is_validated_before_starting_loader(self):
+        with patch.object(self.runtime, 'load_async') as load:
+            self.assertEqual(self.request('POST', '/api/runtime/load', b'{"device":"cpu"}')[0], 202)
+            load.assert_called_once_with(device='cpu')
+            for body in (b'{"device":"cuda"}', b'{"device":{}}', b'{"device":[]}', b'{"model_path":"x"}'):
+                self.assertEqual(self.request('POST', '/api/runtime/load', body)[0], 400)
+            self.assertEqual(load.call_count, 1)
+
+    def test_malformed_example_documents_do_not_break_endpoint(self):
+        with tempfile.TemporaryDirectory() as directory, patch('services.inference.server.STATE_DIR', Path(directory)):
+            for document in (None, [], 'bad', {'recorded': True, 'comparisons': None}, {'recorded': True, 'comparisons': [None]}):
+                (Path(directory) / 'examples.json').write_text(json.dumps(document))
+                status, data, _ = self.request('GET', '/api/examples')
+                self.assertEqual(status, 200)
+                self.assertEqual(data, {'examples': []})
 
 
 if __name__ == '__main__':

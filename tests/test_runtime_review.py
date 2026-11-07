@@ -1,13 +1,69 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from services.inference.runtime import LocalRuntime
 
 
 class RuntimeReviewTests(unittest.TestCase):
+    def test_unavailable_mps_has_an_actionable_error_without_loading_weights(self):
+        runtime = LocalRuntime()
+        torch = SimpleNamespace(backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False)))
+        loader = MagicMock()
+        transformers = SimpleNamespace(AutoTokenizer=loader, Qwen3_5ForConditionalGeneration=loader)
+        with patch.dict('sys.modules', {'torch': torch, 'transformers': transformers, 'accelerate': SimpleNamespace()}):
+            runtime._load('mps')
+        self.assertEqual(runtime.state, 'error')
+        self.assertIn('Choose CPU', runtime.message)
+        loader.from_pretrained.assert_not_called()
+
+    def test_error_with_cache_in_its_message_preserves_the_actual_cause(self):
+        runtime = LocalRuntime()
+        torch = SimpleNamespace(backends=SimpleNamespace(mps=SimpleNamespace(is_available=MagicMock(side_effect=RuntimeError('MPS cache allocation failed')))))
+        transformers = SimpleNamespace(AutoTokenizer=MagicMock(), Qwen3_5ForConditionalGeneration=MagicMock())
+        with patch.dict('sys.modules', {'torch': torch, 'transformers': transformers, 'accelerate': SimpleNamespace()}):
+            runtime._load()
+        self.assertEqual(runtime.state, 'error')
+        self.assertIn('MPS cache allocation failed', runtime.message)
+        self.assertNotIn('not cached', runtime.message)
+
+    def test_mps_disables_async_weight_loading_before_materialization(self):
+        for device, initial_flag in [('mps', None), ('mps', '0'), ('cpu', None), ('cpu', '0')]:
+            with self.subTest(device=device, initial_flag=initial_flag):
+                model = MagicMock()
+                model.model.language_model.layers = [MagicMock() for _ in range(32)]
+                model.model.language_model.layers[14].mlp.down_proj.weight.shape = (2560, 9216)
+                tokenizer = SimpleNamespace(chat_template='test template')
+                torch = SimpleNamespace(__version__='test', float16='float16', bfloat16='bfloat16',
+                    backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: device == 'mps')))
+
+                def materialize(*args, **kwargs):
+                    self.assertEqual(kwargs['device_map'], {'': device})
+                    self.assertEqual(os.environ.get('HF_DEACTIVATE_ASYNC_LOAD'),
+                                     '1' if device == 'mps' else initial_flag)
+                    return model
+
+                loader = MagicMock(side_effect=materialize)
+                transformers = SimpleNamespace(__version__='test',
+                    AutoTokenizer=SimpleNamespace(from_pretrained=MagicMock(return_value=tokenizer)),
+                    Qwen3_5ForConditionalGeneration=SimpleNamespace(from_pretrained=loader))
+                modules = {'torch': torch, 'transformers': transformers,
+                           'accelerate': SimpleNamespace(__version__='test')}
+                runtime = LocalRuntime()
+                with patch.dict(os.environ), patch.dict('sys.modules', modules), \
+                     patch.object(runtime, '_prepare_profile'), patch.object(runtime, '_verify_recovery'):
+                    for name in ('NEURON_DJ_DEVICE', 'NEURON_DJ_DTYPE', 'HF_DEACTIVATE_ASYNC_LOAD'):
+                        os.environ.pop(name, None)
+                    if initial_flag is not None:
+                        os.environ['HF_DEACTIVATE_ASYNC_LOAD'] = initial_flag
+                    runtime._load()
+                    self.assertEqual(runtime.state, 'ready', runtime.message)
+                    loader.assert_called_once()
+
     def test_cancel_before_generation_skips_model_access(self):
         runtime = LocalRuntime()
         cancel = threading.Event()

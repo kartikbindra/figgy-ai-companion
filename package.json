@@ -7,7 +7,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit -p apps/web/tsconfig.json",
     "test": "node --test apps/web/tests/*.test.mjs",
-    "start": "python3 -m services.inference.server"
+    "start": "python3 scripts/start.py"
   },
   "dependencies": {
     "react": "19.2.0",

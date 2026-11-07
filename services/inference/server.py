@@ -1,9 +1,11 @@
 """Dependency-free loopback web/API server. One process owns one model worker."""
 from __future__ import annotations
 import argparse
+import errno
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -71,9 +73,9 @@ def make_handler(runtime, manager, web_root=None):
                 body = self._body()
                 path = urlsplit(self.path).path
                 if path == '/api/runtime/load':
-                    if body:
-                        raise JobError(400, 'Model loading accepts no options.')
-                    runtime.load_async()
+                    if set(body) - {'device'} or body.get('device') not in (None, 'cpu', 'mps'):
+                        raise JobError(400, 'Model loading accepts only an optional cpu or mps device.')
+                    runtime.load_async(device=body.get('device'))
                     return self._json(202, runtime.status())
                 if path == '/api/comparisons':
                     request = ComparisonRequest.parse(body)
@@ -108,8 +110,10 @@ def make_handler(runtime, manager, web_root=None):
                     examples = []
                     try:
                         document = json.loads((STATE_DIR / 'examples.json').read_text())
-                        if document.get('recorded') is True:
-                            examples = document.get('comparisons', [])[:3]
+                        if isinstance(document, dict) and document.get('recorded') is True:
+                            comparisons = document.get('comparisons')
+                            if isinstance(comparisons, list):
+                                examples = [item for item in comparisons if isinstance(item, dict)][:3]
                     except (OSError, ValueError):
                         pass
                     return self._json(200, {'examples': examples})
@@ -175,14 +179,25 @@ def main():
     parser = argparse.ArgumentParser(description='Neuron DJ local instrument')
     parser.add_argument('--port', type=int, default=8791)
     parser.add_argument('--load-model', action='store_true')
+    parser.add_argument('--open', action='store_true', help='Open the local app in your default browser')
     args = parser.parse_args()
     runtime = LocalRuntime()
     manager = JobManager(runtime)
-    server = LocalServer(('127.0.0.1', args.port), make_handler(runtime, manager))
+    try:
+        server = LocalServer(('127.0.0.1', args.port), make_handler(runtime, manager))
+    except OSError as exc:
+        manager.close()
+        if exc.errno == errno.EADDRINUSE:
+            parser.exit(1, f'Port {args.port} is already in use. Open http://127.0.0.1:{args.port}, or use --port {args.port + 1}.\n')
+        if isinstance(exc, PermissionError):
+            parser.exit(1, 'This process is not allowed to open a local server. Run python3 scripts/start.py in a regular macOS terminal.\n')
+        raise
     if args.load_model:
         runtime.load_async()
     print(f'Neuron DJ → http://127.0.0.1:{server.server_port}', flush=True)
     print('Local only. Press Ctrl+C to close the instrument.', flush=True)
+    if args.open:
+        webbrowser.open(f'http://127.0.0.1:{server.server_port}')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
