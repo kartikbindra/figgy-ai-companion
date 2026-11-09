@@ -18,7 +18,7 @@ async function until(predicate) {
 function textButton(document, text) {
   return [...document.querySelectorAll('button')].find(button => button.textContent.includes(text));
 }
-function boot({ storageFails = false, expired = false, url = 'http://127.0.0.1:8791/', examples = [], initialRuntime = runtime } = {}) {
+function boot({ storageFails = false, expired = false, url = 'http://127.0.0.1:8791/', examples = [], initialRuntime = runtime, unified = false } = {}) {
   const errors = [], streams = [], requests = [], copied = [];
   const console = new VirtualConsole(); console.on('jsdomError', error => errors.push(error));
   const dom = new JSDOM(html, { url, runScripts: 'dangerously', pretendToBeVisual: true,
@@ -28,6 +28,20 @@ function boot({ storageFails = false, expired = false, url = 'http://127.0.0.1:8
       Object.defineProperty(window.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
       window.fetch = async (path, options) => {
         requests.push([path, options]);
+        if (unified && path.startsWith('/api/v2/')) {
+          const settings = { persona: 'dark_comedian', fusion: {}, intensity: .85, strength: 0, mood: true, memory: true, max_tokens: 128 };
+          const chat = { id: 'chat-fixture', sequence: 1, status: 'queued', request: { prompt: 'Test chat', kind: 'chat', conversation_id: 'conversation-fixture', provenance: JSON.stringify({ settings }) }, outputs: { reply: '' }, metrics: {}, error: null, queue_position: 1 };
+          const value = path === '/api/v2/personas' ? { personas: [{ id: 'dark_comedian', name: 'The Dark Comedian' }, { id: 'existentialist', name: 'The Existentialist' }] } :
+            path === '/api/v2/memories' ? { memories: [{ id: 1, content: '<img src=x onerror=alert(1)>' }] } :
+            path === '/api/v2/conversations' && options?.method === 'POST' ? { id: 'conversation-fixture', title: 'Test conversation', settings, turns: [] } :
+            path === '/api/v2/conversations' ? { conversations: [{ id: 'conversation-fixture', title: 'Test conversation' }] } :
+            path.endsWith('/settings') ? JSON.parse(options.body) :
+            path.endsWith('/turns') ? chat :
+            path === '/api/v2/experiments' ? { ...chat, id: 'experiment-fixture', request: { ...chat.request, kind: 'experiment' }, outputs: { baseline: '', prompt: '', activation: '', combined: '' } } :
+            path.includes('/jobs/') && options?.method === 'DELETE' ? { ...chat, status: 'stopping' } :
+            { id: 'conversation-fixture', title: 'Test conversation', settings, turns: [] };
+          return { ok: true, json: async () => structuredClone(value) };
+        }
         if (expired && path === `/api/comparisons/${fixture.id}` && !options?.method)
           return { ok: false, status: 404, json: async () => ({ error: 'Comparison expired' }) };
         const value = path === '/api/runtime' ? initialRuntime : path === '/api/examples' ? { examples } :
@@ -58,13 +72,61 @@ test('the real production bundle renders without model output fixtures', async (
     assert.deepEqual(app.errors, []);
   } finally { app.dom.window.close(); }
 });
+
+test('companion submits an idempotent structured turn and preserves it across tabs', async () => {
+  const app = boot({ unified: true });
+  try {
+    await until(() => textButton(app.document, 'Companion'));
+    textButton(app.document, 'Companion').click();
+    await until(() => app.document.querySelector('#chat-message'));
+    const textarea = app.document.querySelector('#chat-message');
+    const setter = Object.getOwnPropertyDescriptor(app.dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, 'Test chat'); textarea.dispatchEvent(new app.dom.window.Event('input', { bubbles: true }));
+    await until(() => !textButton(app.document, 'Send message').disabled);
+    textButton(app.document, 'Send message').click();
+    await until(() => app.streams.some(s => s.url.includes('/api/v2/jobs/chat-fixture')));
+    const submission = app.requests.find(([path]) => path.endsWith('/turns'));
+    assert.equal(JSON.parse(submission[1].body).message, 'Test chat');
+    assert.ok(submission[1].headers['Idempotency-Key']);
+    const stream = app.streams.find(s => s.url.includes('/api/v2/jobs/chat-fixture'));
+    textButton(app.document, 'Activation studio').click();
+    assert.ok(!stream.closed);
+    textButton(app.document, 'Companion').click();
+    textButton(app.document, 'Stop generation').click();
+    await until(() => app.requests.some(([path, opts]) => path.includes('/jobs/chat-fixture') && opts?.method === 'DELETE'));
+    assert.deepEqual(app.errors, []);
+  } finally { app.dom.window.close(); }
+});
+
+test('memory content is rendered as text and method controls use the shared API', async () => {
+  const app = boot({ unified: true });
+  try {
+    await until(() => textButton(app.document, 'Memory'));
+    textButton(app.document, 'Memory').click();
+    await until(() => app.document.querySelector('.memory-list article'));
+    assert.match(app.document.querySelector('.memory-list').textContent, /<img src=x/);
+    assert.equal(app.document.querySelector('.memory-list img'), null);
+    textButton(app.document, 'Compare methods').click();
+    await until(() => app.document.querySelector('#method-prompt'));
+    const textarea = app.document.querySelector('#method-prompt');
+    Object.getOwnPropertyDescriptor(app.dom.window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'Method fixture prompt');
+    textarea.dispatchEvent(new app.dom.window.Event('input', { bubbles: true }));
+    await until(() => !textButton(app.document, 'Run method comparison').disabled);
+    textButton(app.document, 'Run method comparison').click();
+    await until(() => app.requests.some(([path]) => path === '/api/v2/experiments'));
+    const submitted = JSON.parse(app.requests.find(([path]) => path === '/api/v2/experiments')[1].body);
+    assert.deepEqual(submitted.conditions, ['baseline', 'prompt', 'activation', 'combined']);
+    assert.equal(submitted.prompt, 'Method fixture prompt');
+    assert.deepEqual(app.errors, []);
+  } finally { app.dom.window.close(); }
+});
 test('a failed recipe save preserves the dialog and reports the storage failure', async () => {
   const app = boot({ storageFails: true });
   try {
     await until(() => textButton(app.document, 'Save this mix'));
     textButton(app.document, 'Save this mix').click();
     await until(() => app.document.querySelector('dialog[open]'));
-    app.document.querySelector('form').dispatchEvent(new app.dom.window.Event('submit', { bubbles: true, cancelable: true }));
+    app.document.querySelector('dialog form').dispatchEvent(new app.dom.window.Event('submit', { bubbles: true, cancelable: true }));
     await until(() => app.document.querySelector('dialog .dialog-notice'));
     assert.match(app.document.querySelector('dialog .dialog-notice').textContent, /storage is full or unavailable/);
     assert.ok(app.document.querySelector('dialog[open]'));

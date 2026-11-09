@@ -38,7 +38,7 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, runtime, *, capacity=4, retained=12, ttl=900, orphan_timeout=45, deadline=600):
+    def __init__(self, runtime, *, capacity=4, retained=12, ttl=900, orphan_timeout=45, deadline=600, on_finish=None, on_progress=None):
         self.runtime = runtime
         self.capacity, self.retained, self.ttl = capacity, retained, ttl
         self.orphan_timeout, self.deadline = orphan_timeout, deadline
@@ -47,6 +47,8 @@ class JobManager:
         self.keys = {}
         self.queue = deque()
         self.closing = False
+        self.on_finish = on_finish
+        self.on_progress = on_progress
         self.worker = threading.Thread(target=self._work, name='comparison-worker', daemon=True)
         self.worker.start()
         self.monitor = threading.Thread(target=self._watch, name='comparison-watchdog', daemon=True)
@@ -72,7 +74,7 @@ class JobManager:
             pending = [key for key in self.queue if key in self.jobs and self.jobs[key].status == 'queued']
             if job.id in pending:
                 position = pending.index(job.id) + 1
-        return {'id': job.id, 'schema_version': 1, 'sequence': job.sequence,
+        return {'id': job.id, 'schema_version': job.request.schema_version, 'sequence': job.sequence,
                 'created_at': job.created_at, 'status': job.status, 'request': asdict(job.request),
                 'runtime': copy.deepcopy(job.runtime), 'outputs': dict(job.outputs),
                 'metrics': copy.deepcopy(job.metrics), 'error': job.error, 'queue_position': position}
@@ -88,7 +90,13 @@ class JobManager:
             return
         job.status = status
         job.finished = time.monotonic()
-        self._emit(job, status)
+        if self.on_finish:
+            try:
+                self.on_finish(self.snapshot(job))
+            except Exception:
+                job.status = 'failed'
+                job.error = 'Could not save this turn. Restart the service before retrying.'
+        self._emit(job, job.status)
 
     def _queue_changed(self):
         for job_id in self.queue:
@@ -117,6 +125,8 @@ class JobManager:
             if len(self.jobs) >= self.retained:
                 raise JobError(429, 'Too many comparisons are retained. Close old streams and try again.')
             job = Job(uuid.uuid4().hex, request, self.runtime.status())
+            if hasattr(request, 'legs'):
+                job.outputs = {leg.name: '' for leg in request.legs}
             self.jobs[job.id] = job
             self.keys[key] = (job.id, request.fingerprint())
             self.queue.append(job.id)
@@ -216,7 +226,10 @@ class JobManager:
                 with self.runtime.model_lock:
                     with self.condition:
                         job.started = time.monotonic()
-                    for side, strength in (('original', 0), ('remix', job.request.strength)):
+                    legs = ([(leg.name, leg.strength, leg.messages) for leg in job.request.legs]
+                            if hasattr(job.request, 'legs') else
+                            [('original', 0, job.request.prompt), ('remix', job.request.strength, job.request.prompt)])
+                    for side, strength, messages in legs:
                         with self.condition:
                             if job.cancel.is_set():
                                 break
@@ -229,8 +242,10 @@ class JobManager:
                                     raise ValueError('Output exceeded the local text limit.')
                                 job.outputs[response_side] += text
                                 self._emit(job, 'text', response_side)
+                                if self.on_progress:
+                                    self.on_progress(self.snapshot(job))
 
-                        result = self.runtime.generate(job.request.prompt, strength,
+                        result = self.runtime.generate(messages, strength,
                             job.request.max_tokens, job.cancel, on_text)
                         with self.condition:
                             job.metrics[side] = asdict(result)
@@ -250,4 +265,6 @@ class JobManager:
             for job in self.jobs.values():
                 if job.status not in TERMINAL:
                     job.cancel.set()
+                    if job.status == 'queued':
+                        self._finish(job, 'stopped')
             self.condition.notify_all()

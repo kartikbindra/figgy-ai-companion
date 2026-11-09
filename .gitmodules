@@ -1,0 +1,3 @@
+[submodule "figgy-ai-companion"]
+	path = figgy-ai-companion
+	url = https://github.com/kartikbindra/figgy-ai-companion

@@ -58,6 +58,7 @@ class LocalRuntime:
                     'loading_device': self.loading_device,
                     'max_output_tokens': 256, 'strength_cap': 1.0,
                     'evidence': 'Published recipe · local behavior pilot pending',
+                    'provider': 'transformers', 'capabilities': {'activation': True, 'structured_messages': True},
                     'local_only': True, 'calibration': copy.deepcopy(self.calibration)}
 
     def _state(self, state, message):
@@ -162,9 +163,17 @@ class LocalRuntime:
             temporary.write_text(json.dumps(self.calibration, indent=2) + '\n')
             temporary.replace(path)
 
-    def inputs(self, prompt):
-        rendered = self.tokenizer.apply_chat_template([{'role': 'user', 'content': prompt}],
+    def _render(self, prompt):
+        messages = ([{'role': 'user', 'content': prompt}] if isinstance(prompt, str) else
+                    [{'role': message.role, 'content': message.content} for message in prompt])
+        return self.tokenizer.apply_chat_template(messages,
             tokenize=False, add_generation_prompt=True, enable_thinking=False)
+
+    def count_tokens(self, messages):
+        return len(self.tokenizer(self._render(messages), add_special_tokens=False)['input_ids'])
+
+    def inputs(self, prompt):
+        rendered = self._render(prompt)
         batch = self.tokenizer(rendered, return_tensors='pt', add_special_tokens=False)
         if batch.input_ids.shape[-1] > 768:
             raise ValueError('That prompt is too long. Use at most 768 input tokens.')

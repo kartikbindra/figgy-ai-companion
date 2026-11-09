@@ -1,4 +1,5 @@
 export type Runtime = {
+  capabilities?: { activation: boolean; structured_messages: boolean };
   state: 'not_loaded' | 'loading' | 'ready' | 'error' | 'disconnected';
   message: string; dependencies_available: boolean; model_id: string; model_revision: string;
   profile: null | Record<string, string | boolean>; strength_cap: number;

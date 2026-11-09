@@ -1,5 +1,7 @@
 **Implementation status**
 
+November 10: the first unified Figgy/Neuron DJ text integration is implemented. The launcher now uses `services.api`, with companion chat, memory, matched method comparisons, and an optional Ollama provider sharing the scheduler. See [UNIFIED_IMPLEMENTATION.md](UNIFIED_IMPLEMENTATION.md) for current scope and verification. The notes below describe the original activation-studio delivery.
+
 The accepted product plan is `NEURON_DJ_PLAN.md`. Local execution is the delivery target.
 
 The execution sandbox currently rejects `.git` writes, external DNS/network access, and localhost port binding. Python 3.12 is available. React and build tools were obtained from existing local caches. The Qwen3.5-4B checkpoint and model packages are now cached. Real CPU calibration, recovery checks, and short paired generation passed on November 7; see docs/RUNTIME.md for measurements. GPU execution and full app integration are still unverified.

@@ -7,6 +7,7 @@ import './style.css';
 import './studio.css';
 import { ResponseDeck } from './ResponseDeck';
 import { ModelSetup } from './ModelSetup';
+import { Companion } from './Companion';
 
 const isPreview = location.protocol === 'file:';
 const emptyRuntime: Runtime = { state: 'disconnected', message: 'Connecting to the local instrument…',
@@ -65,7 +66,9 @@ function Modal({ title, children, onClose, notice }: { title: string; children: 
 }
 
 function App() {
+  const [workspace, setWorkspace] = useState('studio');
   const [runtime, setRuntime] = useState<Runtime>(emptyRuntime);
+  useEffect(() => { if (runtime.capabilities?.activation === false) setWorkspace('companion'); }, [runtime.capabilities?.activation]);
   const [strength, setStrength] = useState(.5);
   const [maxTokens, setMaxTokens] = useState(128);
   const [prompt, setPrompt] = useState('');
@@ -255,7 +258,9 @@ function App() {
         <button className="text-button library-button" onClick={() => setPanel('library')}><Icon name="folder"/> Library <span>{recipes.length + savedRuns.length}</span></button>
         <button className="icon-button" onClick={() => setPanel('details')} aria-label="About this experiment"><Icon name="info"/></button></div>
     </header>
-    <div className="app-layout">
+    <nav className="workspace-tabs" aria-label="Workspace">{[['companion', 'Companion'], ['studio', 'Activation studio'], ['methods', 'Compare methods'], ['memory', 'Memory']].map(([id, label]) => <button key={id} disabled={id === 'studio' && runtime.capabilities?.activation === false} aria-pressed={workspace === id} onClick={() => setWorkspace(id)}>{label}</button>)}</nav>
+    <Companion mode={workspace} runtime={runtime} setup={() => setPanel('setup')}/>
+    <div className="app-layout" hidden={workspace !== 'studio'}>
       <aside className="recipe-rail" aria-label="Recipe bank">
         <div className="rail-title"><span className="eyebrow">RECIPE BANK</span><span className="tiny-number">01</span></div>
         <div className="recipe-card"><div className="recipe-art" aria-hidden="true"><div className="node n1"/><div className="node n2"/><div className="node n3"/><div className="node n4"/><div className="neuron-line l1"/><div className="neuron-line l2"/><div className="neuron-line l3"/><span>13 ↔ 14</span></div>

@@ -1,6 +1,39 @@
 **Neuron DJ**
 
-A local instrument for comparing Qwen3.5-4B with a reversible persona intervention. One prompt, one checkpoint, two response decks. Generation, recipes, and saved comparisons stay on your Mac.
+A local companion and experiment studio built from Neuron DJ and Figgy. Chat with persistent conversations, choose or blend five prompt personalities, inspect remembered facts, and compare personality prompts with reversible Qwen activation steering.
+
+The app now has four workspaces:
+
+- **Companion:** streamed chat, conversation-specific personality settings, optional activation strength, and selective local memory. Prompt intensity and activation strength are independent controls. Activation defaults to zero.
+- **Activation studio:** the original paired Original/Remix workflow, with existing recipes and saved comparisons preserved.
+- **Compare methods:** baseline, prompt only, activation only, and combined conditions. Select two to four conditions and a strength; all run sequentially with matched greedy decoding. Memory and history are excluded from these experiments.
+- **Memory:** inspect and delete explicit facts learned from completed chat turns. Memory is local to this owner's profile; this is a single-user application.
+
+Start the unified app with the existing command:
+
+```sh
+python3 scripts/start.py --open
+```
+
+Use **Local setup** to load the cached model, then open **Companion** or **Compare methods**. Chat and experiments share one model-owning worker, bounded queue, replayable stream, and cooperative stopping. Conversations, settings, and partial-turn checkpoints are stored in `.neuron-dj/companion.sqlite3`; unfinished turns are marked interrupted after a restart and excluded from future context. Input stays within the current 768-token Qwen budget by retaining the latest complete history pairs that fit. Overlong mandatory instructions/messages produce an explicit error.
+
+For the terminal client, start the service first, then run `python3 scripts/chat.py`. Use `--conversation ID` to resume a session and `--persona existentialist` to select a personality.
+
+The unified backend requires FastAPI and Uvicorn, installed by the normal setup command. An existing checkout can update only the application dependencies with `.venv/bin/python -m pip install -e .`; the model cache is reused. Model packages remain lazy, and voice packages are not needed for text use. The new setup and API use `services.api`; `services.inference.server` remains a legacy implementation retained for compatibility tests.
+
+Optional Ollama launch, using an explicitly installed local model:
+
+```sh
+NEURON_DJ_PROVIDER=ollama LLM_MODEL=your-installed-model python3 scripts/start.py --open --load-model
+```
+
+Ollama supports companion chat and baseline/prompt comparisons. The app disables activation controls for that provider, records its installed model digest and details, and rejects unsupported activation requests. Its context accounting is a conservative UTF-8 byte estimate, labeled in the runtime profile; the Qwen provider uses its actual tokenizer. Provider selection is per process launch. Keep only one model-serving stack active when measuring memory or latency.
+
+The cloned `figgy-ai-companion` directory is preserved as upstream reference at revision `376ccad`; the unified launcher does not start its backend or dashboard. Its voice/device APIs, ESP32 firmware work, and advanced memory remain follow-up work. This first integration learns a small set of explicit name, interest, and location facts; it does not implement semantic search or episodic summarization. Existing standalone Figgy databases are not automatically imported.
+
+Implementation details, current verification, and remaining gates are in [docs/UNIFIED_IMPLEMENTATION.md](docs/UNIFIED_IMPLEMENTATION.md); the original [integration plan](docs/UNIFICATION_PLAN.md) remains available.
+
+The following sections retain the original activation-studio runtime guidance and prior measurements.
 
 The interface includes a strength fader, dose variations, paired streamed responses, cooperative stopping, local recipes, settings-only links, explicit replay exports, and a setup panel. It uses one model-owning worker and generates Original followed by Remix.
 
@@ -92,7 +125,7 @@ Run the Python suite with `.venv/bin/python` after installing model dependencies
 
 **Structured history**
 
-Git initialization was rejected by the workspace's `.git` write restriction. Milestone snapshots were preserved in `.artifacts/history.fi` with conventional subjects and your configured Git identity. They contain no AI attribution trailers. They are prepared history, not commits already created in this checkout.
+The workspace blocks creating `.git` at the project root. The original milestone history and the unified-project progress are now actual commits on `main`, with Git metadata stored in `.artifacts/git`. They use your configured Git identity and contain no AI attribution trailers. The cloned Figgy source is registered as an upstream-reference submodule; the unified application's runtime code lives in the root project.
 
 From a normal terminal with `.git` writes available:
 
@@ -100,7 +133,7 @@ From a normal terminal with `.git` writes available:
 python3 scripts/import_history.py
 ```
 
-The importer initializes an empty repository, imports the milestones, and updates the index without replacing working files. It refuses to overwrite an existing committed history. The `.artifacts` directory is local delivery data; retain it until importing the commits.
+The script moves the saved Git metadata to the standard `.git` location, preserving commits, index, and working files. It refuses to overwrite an existing root repository. Until then, inspect the real commits with `git --git-dir=.artifacts/git --work-tree=. log --oneline`. Keep `.artifacts` until the metadata has been moved; it contains the repository history.
 
 **Source map**
 

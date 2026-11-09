@@ -35,7 +35,7 @@ def main():
         env['NEURON_DJ_DEVICE'] = 'cpu'
     try:
         return subprocess.call([str(python) if python.exists() else sys.executable,
-            '-u', '-m', 'services.inference.server', *server_args], cwd=ROOT, env=env)
+            '-u', '-m', 'services.api', *server_args], cwd=ROOT, env=env)
     except KeyboardInterrupt:
         return 0
 

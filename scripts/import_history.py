@@ -3,6 +3,17 @@ from pathlib import Path
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
+metadata = root / '.artifacts/git'
+if metadata.is_dir():
+    if (root / '.git').exists():
+        raise SystemExit('A root .git already exists; leaving the saved repository intact.')
+    subprocess.run(['git', f'--git-dir={metadata}', 'rev-parse', '--verify', 'HEAD'], check=True)
+    try:
+        metadata.rename(root / '.git')
+    except PermissionError:
+        raise SystemExit('This environment blocks root .git writes. Run this script in a regular terminal; real commits remain in .artifacts/git.')
+    subprocess.run(['git', 'log', '-3', '--oneline'], cwd=root, check=True)
+    raise SystemExit(0)
 history = root / '.artifacts/history.fi'
 if not history.is_file():
     raise SystemExit('No recorded milestone history exists.')
