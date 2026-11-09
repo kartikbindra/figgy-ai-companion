@@ -1,0 +1,34 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database & Runtime
+*.db
+*.sqlite
+*.sqlite3
+figgy.db
+
+# Environment variables
+.env
+.env.local
+
+# Testing, Coverage & Caches
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Audio artifacts
+*.wav
+*.mp3
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

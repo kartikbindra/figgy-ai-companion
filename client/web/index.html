@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figgy — The Unhinged Handheld AI Companion</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card-bg: #1a1d27;
+      --border: #2a2e3d;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #a855f7;
+      --accent-glow: rgba(168, 85, 247, 0.4);
+      --led-color: #a855f7;
+      --danger: #ef4444;
+      --success: #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    
+    /* Layout */
+    .sidebar { width: 340px; background: var(--card-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 18px; overflow-y: auto; }
+    .main-chat { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+    
+    /* Virtual Device Preview */
+    .device-preview {
+      background: #11141e;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      text-align: center;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .device-led {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--led-color);
+      margin: 0 auto 6px auto;
+      box-shadow: 0 0 15px var(--led-color), 0 0 30px var(--led-color);
+      transition: all 0.3s ease;
+    }
+    .device-haptic {
+      display: inline-block;
+      font-size: 11px;
+      background: #252a38;
+      padding: 2px 8px;
+      border-radius: 8px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .device-haptic.pulsing {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.2);
+    }
+
+    /* Top Action Bar in Sidebar */
+    .nav-actions { display: flex; gap: 8px; margin-bottom: 16px; }
+    .action-btn {
+      flex: 1;
+      background: #212636;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .action-btn:hover { background: #2c3349; }
+    .badge-count {
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+    }
+    
+    /* Persona Controls */
+    h2, h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; }
+    .persona-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .persona-btn {
+      background: #212636;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    .persona-btn:hover { background: #2c3349; }
+    .persona-btn.active {
+      border-color: var(--accent);
+      background: rgba(168, 85, 247, 0.15);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* Voice Selection Group */
+    .voice-group {
+      background: #11141e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .voice-select {
+      width: 100%;
+      background: #1a1d27;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      margin-top: 6px;
+      outline: none;
+    }
+    .voice-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    
+    /* Sliders */
+    .slider-group { margin-bottom: 12px; }
+    .slider-header { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+    
+    /* Chat Area */
+    .chat-header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+    }
+    .chat-header .title { font-weight: 700; font-size: 16px; color: #fff; }
+    .chat-header .badges { display: flex; gap: 8px; align-items: center; }
+    .chat-header .badge {
+      font-size: 11px;
+      background: rgba(168, 85, 247, 0.2);
+      color: var(--accent);
+      padding: 4px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--accent);
+    }
+    
+    .chat-messages {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg { max-width: 80%; padding: 12px 16px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-break: break-word; position: relative; }
+    .msg.user { align-self: flex-end; background: #3b82f6; color: #fff; border-bottom-right-radius: 4px; }
+    .msg.figgy {
+      align-self: flex-start;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .msg-meta { font-size: 11px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .audio-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .audio-btn:hover { text-decoration: underline; }
+    
+    /* Input Box & Voice Controls */
+    .chat-input-area {
+      padding: 14px 24px;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .chat-input-area input {
+      flex: 1;
+      background: #11141e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .chat-input-area input:focus { border-color: var(--accent); }
+    .mic-btn {
+      background: #212636;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: all 0.2s;
+    }
+    .mic-btn:hover { background: #2c3349; }
+    .mic-btn.recording {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: var(--danger);
+      color: var(--danger);
+      animation: pulse-red 1.2s infinite;
+    }
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .send-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0 20px;
+      height: 44px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Sliding Memory Drawer */
+    .memory-drawer {
+      position: absolute;
+      top: 0;
+      right: -380px;
+      width: 380px;
+      height: 100%;
+      background: var(--card-bg);
+      border-left: 1px solid var(--border);
+      box-shadow: -6px 0 24px rgba(0,0,0,0.4);
+      transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+    .memory-drawer.open { right: 0; }
+    .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .drawer-header h3 { margin: 0; color: #fff; font-size: 15px; }
+    .drawer-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+    .memory-cards { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .mem-card {
+      background: #11141e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .mem-card .category { font-size: 10px; color: var(--accent); font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
+    .mem-card .content { font-size: 12px; line-height: 1.4; color: #e2e8f0; }
+    .mem-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 4px; }
+    .mem-del:hover { color: var(--danger); }
+    .add-memory-box { margin-top: 14px; display: flex; gap: 6px; }
+    .add-memory-box input {
+      flex: 1;
+      background: #11141e;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #fff;
+      font-size: 12px;
+      outline: none;
+    }
+    .add-memory-box button {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      padding: 0 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Left Sidebar Controls -->
+  <div class="sidebar">
+    <!-- Virtual ESP32 Hardware Preview -->
+    <div class="device-preview">
+      <div id="deviceLed" class="device-led"></div>
+      <div style="font-size: 13px; font-weight: 600; color: #fff;">Figgy Handheld ESP32</div>
+      <div id="hapticStatus" class="device-haptic">Haptic: Idle</div>
+      <div style="font-size: 11px; color: var(--muted); margin-top: 3px;">Online • WiFi Hotspot Ready</div>
+    </div>
+
+    <!-- Quick Navigation / Memory Badge -->
+    <div class="nav-actions">
+      <button class="action-btn" onclick="toggleMemoryDrawer()">
+        <span>🧠 Memories</span>
+        <span class="badge-count" id="memBadge">0</span>
+      </button>
+      <button class="action-btn" onclick="loadMemories()">
+        <span>↻ Sync</span>
+      </button>
+    </div>
+
+    <!-- Voice Selection -->
+    <div class="voice-group">
+      <div style="font-size: 12px; font-weight: 600; color: #fff;">🗣️ Voice Configuration</div>
+      <select id="voiceSelect" class="voice-select" onchange="changeVoice(this.value)">
+        <option value="en-US-GuyNeural">Guy (Sarcastic American - Default)</option>
+        <option value="en-GB-RyanNeural">Ryan (Witty British)</option>
+        <option value="en-US-ChristopherNeural">Christopher (Theatrical Villain)</option>
+        <option value="en-US-EricNeural">Eric (Warm Romantic)</option>
+        <option value="en-US-RogerNeural">Roger (Analytical / First-Principles)</option>
+        <option value="en-US-AnaNeural">Ana (Playful & Sharp)</option>
+        <option value="en-AU-WilliamNeural">William (Laid-back Aussie)</option>
+      </select>
+      <div class="voice-toggle">
+        <span>Speak replies automatically</span>
+        <input type="checkbox" id="autoSpeakCheck" checked>
+      </div>
+    </div>
+
+    <!-- Active Persona Selection -->
+    <h3>Select Personality</h3>
+    <div class="persona-selector">
+      <button class="persona-btn active" data-persona="dark_comedian" onclick="selectPersona('dark_comedian')">
+        <span>💀 The Dark Comedian</span>
+        <span style="font-size: 10px; color: #a855f7;">DEFAULT</span>
+      </button>
+      <button class="persona-btn" data-persona="existentialist" onclick="selectPersona('existentialist')">
+        <span>📖 The Existentialist</span>
+      </button>
+      <button class="persona-btn" data-persona="first_principles" onclick="selectPersona('first_principles')">
+        <span>🚀 First-Principles</span>
+      </button>
+      <button class="persona-btn" data-persona="ted_mosby" onclick="selectPersona('ted_mosby')">
+        <span>💛 Hopeless Romantic</span>
+      </button>
+      <button class="persona-btn" data-persona="homelander" onclick="selectPersona('homelander')">
+        <span>⚡ Unhinged Villain</span>
+      </button>
+    </div>
+
+    <!-- Intensity Slider -->
+    <div class="slider-group">
+      <div class="slider-header">
+        <span>Intensity / Edge</span>
+        <span id="intensityVal">85%</span>
+      </div>
+      <input type="range" id="intensitySlider" min="0.1" max="1.0" step="0.05" value="0.85" onchange="updateIntensity(this.value)">
+    </div>
+
+    <!-- Fusion Weights Mixer -->
+    <h3 style="margin-top: 10px;">Fusion Mixer</h3>
+    <div class="slider-group">
+      <div class="slider-header"><span>Dark Comedian</span><span id="fComedianVal">50%</span></div>
+      <input type="range" class="fusion-slider" id="fComedian" min="0" max="100" value="50" oninput="applyFusion()">
+    </div>
+    <div class="slider-group">
+      <div class="slider-header"><span>Existentialist</span><span id="fExistentialistVal">50%</span></div>
+      <input type="range" class="fusion-slider" id="fExistentialist" min="0" max="100" value="50" oninput="applyFusion()">
+    </div>
+    <div class="slider-group">
+      <div class="slider-header"><span>Villain (Homelander)</span><span id="fVillainVal">0%</span></div>
+      <input type="range" class="fusion-slider" id="fVillain" min="0" max="100" value="0" oninput="applyFusion()">
+    </div>
+  </div>
+
+  <!-- Main Chat Conversation Panel -->
+  <div class="main-chat">
+    <div class="chat-header">
+      <div class="title">Figgy Companion Stream</div>
+      <div class="badges">
+        <button class="badge" onclick="toggleMemoryDrawer()" style="cursor: pointer; background: rgba(56, 189, 248, 0.15); border-color: #38bdf8; color: #38bdf8;">
+          🧠 <span id="headerMemCount">0</span> Memories
+        </button>
+        <div id="activeBadge" class="badge">Mode: Dark Comedian</div>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="messages">
+      <div class="msg figgy">
+        Hey. I'm awake and sitting in your device. Say something interesting, or I might start questioning why you brought me into existence.
+        <span class="msg-meta">
+          <span>Figgy • Default</span>
+          <button class="audio-btn" onclick="speakText(this.parentElement.parentElement.childNodes[0].textContent)">🔊 Listen</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="chat-input-area">
+      <button id="micBtn" class="mic-btn" title="Click to Record Voice" onclick="toggleRecording()">🎙️</button>
+      <input type="text" id="userInput" placeholder="Say something to Figgy (or use mic)..." onkeydown="if(event.key==='Enter') sendMessage()">
+      <button id="sendBtn" class="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+
+    <!-- Sliding Memory Drawer -->
+    <div id="memoryDrawer" class="memory-drawer">
+      <div class="drawer-header">
+        <h3>🧠 Persistent SQLite Memories</h3>
+        <button class="drawer-close" onclick="toggleMemoryDrawer()">✕</button>
+      </div>
+      <div style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">
+        Facts automatically learned about you during conversations. Figgy references these dynamically.
+      </div>
+      <div class="memory-cards" id="memoryCards">
+        <div style="font-size: 12px; color: var(--muted);">Loading memories...</div>
+      </div>
+      <div class="add-memory-box">
+        <input type="text" id="customFactInput" placeholder="Add custom fact (e.g. loves jazz)...">
+        <button onclick="addCustomMemory()">+ Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:8000";
+    let activePersona = "dark_comedian";
+    let currentMode = "single";
+    let conversationId = "web-session-" + Math.floor(Math.random() * 10000);
+    let selectedVoice = "en-US-GuyNeural";
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    const personaColors = {
+      dark_comedian: "#a855f7",
+      existentialist: "#06b6d4",
+      first_principles: "#3b82f6",
+      ted_mosby: "#eab308",
+      homelander: "#ef4444"
+    };
+
+    const personaDefaultVoices = {
+      dark_comedian: "en-US-GuyNeural",
+      existentialist: "en-GB-RyanNeural",
+      first_principles: "en-US-RogerNeural",
+      ted_mosby: "en-US-EricNeural",
+      homelander: "en-US-ChristopherNeural"
+    };
+
+    function updateLED(color) {
+      const led = document.getElementById("deviceLed");
+      led.style.background = color;
+      led.style.boxShadow = `0 0 15px ${color}, 0 0 30px ${color}`;
+    }
+
+    function pulseHaptic(duration = 200) {
+      const el = document.getElementById("hapticStatus");
+      el.classList.add("pulsing");
+      el.innerText = "Haptic: Buzzing!";
+      setTimeout(() => {
+        el.classList.remove("pulsing");
+        el.innerText = "Haptic: Idle";
+      }, duration);
+    }
+
+    function toggleMemoryDrawer() {
+      document.getElementById("memoryDrawer").classList.toggle("open");
+      loadMemories();
+    }
+
+    function changeVoice(voiceId) {
+      selectedVoice = voiceId;
+    }
+
+    async function selectPersona(personaId) {
+      activePersona = personaId;
+      currentMode = "single";
+      document.querySelectorAll(".persona-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.persona === personaId);
+      });
+      document.getElementById("activeBadge").innerText = "Mode: " + personaId;
+      updateLED(personaColors[personaId] || "#a855f7");
+      pulseHaptic(120);
+
+      // Auto-suggest matching voice
+      if (personaDefaultVoices[personaId]) {
+        selectedVoice = personaDefaultVoices[personaId];
+        document.getElementById("voiceSelect").value = selectedVoice;
+      }
+
+      try {
+        await fetch(`${API_BASE}/v1/persona`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "single", persona: personaId })
+        });
+      } catch (err) {
+        console.error("Failed to switch persona:", err);
+      }
+    }
+
+    async function updateIntensity(val) {
+      document.getElementById("intensityVal").innerText = Math.round(val * 100) + "%";
+      try {
+        await fetch(`${API_BASE}/v1/persona`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: currentMode, persona: activePersona, intensity: parseFloat(val) })
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function applyFusion() {
+      const c = parseInt(document.getElementById("fComedian").value);
+      const e = parseInt(document.getElementById("fExistentialist").value);
+      const v = parseInt(document.getElementById("fVillain").value);
+      document.getElementById("fComedianVal").innerText = c + "%";
+      document.getElementById("fExistentialistVal").innerText = e + "%";
+      document.getElementById("fVillainVal").innerText = v + "%";
+
+      if (c === 0 && e === 0 && v === 0) return;
+
+      currentMode = "fusion";
+      document.querySelectorAll(".persona-btn").forEach(btn => btn.classList.remove("active"));
+      document.getElementById("activeBadge").innerText = "Mode: Custom Fusion";
+      updateLED("#ec4899");
+
+      try {
+        await fetch(`${API_BASE}/v1/persona`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "fusion",
+            fusion_weights: {
+              dark_comedian: c / 100,
+              existentialist: e / 100,
+              homelander: v / 100
+            }
+          })
+        });
+      } catch (err) {
+        console.error("Fusion update failed:", err);
+      }
+    }
+
+    async function loadMemories() {
+      try {
+        const resp = await fetch(`${API_BASE}/v1/memory`);
+        const memories = await resp.json();
+        const container = document.getElementById("memoryCards");
+        document.getElementById("memBadge").innerText = memories.length;
+        document.getElementById("headerMemCount").innerText = memories.length;
+
+        if (!memories.length) {
+          container.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:20px;">No facts remembered yet.<br>Try telling Figgy your name, hobbies, or what you are building!</div>';
+          return;
+        }
+
+        container.innerHTML = memories.map(m => `
+          <div class="mem-card">
+            <div>
+              <div class="category">[${m.category}] ${m.key}</div>
+              <div class="content">${m.content}</div>
+            </div>
+            <button class="mem-del" title="Delete Memory" onclick="deleteMemory(${m.id})">✕</button>
+          </div>
+        `).join("");
+      } catch (err) {
+        console.error("Failed to load memories:", err);
+      }
+    }
+
+    async function deleteMemory(id) {
+      try {
+        await fetch(`${API_BASE}/v1/memory/${id}`, { method: "DELETE" });
+        loadMemories();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function addCustomMemory() {
+      const input = document.getElementById("customFactInput");
+      const val = input.value.trim();
+      if (!val) return;
+      try {
+        await fetch(`${API_BASE}/v1/memory`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            category: "semantic",
+            key: "fact_" + Date.now().toString().slice(-4),
+            content: val
+          })
+        });
+        input.value = "";
+        loadMemories();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // Voice Synthesis (TTS)
+    async function speakText(text) {
+      if (!text || text.trim() === "...") return;
+      try {
+        const resp = await fetch(`${API_BASE}/v1/voice/synthesize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: text,
+            voice: selectedVoice
+          })
+        });
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audio.play();
+      } catch (err) {
+        console.error("TTS playback error:", err);
+      }
+    }
+
+    // Speech-To-Text (Microphone Recording)
+    async function toggleRecording() {
+      const micBtn = document.getElementById("micBtn");
+      if (isRecording) {
+        // Stop recording
+        mediaRecorder.stop();
+        micBtn.classList.remove("recording");
+        micBtn.innerText = "🎙️";
+        isRecording = false;
+      } else {
+        // Start recording
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            micBtn.innerText = "⏳";
+            await sendVoiceMessage(audioBlob);
+            micBtn.innerText = "🎙️";
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          micBtn.classList.add("recording");
+          micBtn.innerText = "⏹️";
+        } catch (err) {
+          alert("Microphone access denied or unsupported: " + err.message);
+        }
+      }
+    }
+
+    async function sendVoiceMessage(audioBlob) {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+      formData.append("conversation_id", conversationId);
+      formData.append("voice", selectedVoice);
+
+      const placeholder = appendMessage("figgy", "Transcribing & thinking...");
+      pulseHaptic(60);
+
+      try {
+        const resp = await fetch(`${API_BASE}/v1/voice/chat`, {
+          method: "POST",
+          body: formData
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          // Update bubbles
+          appendMessage("user", data.user_transcript);
+          placeholder.childNodes[0].textContent = data.reply;
+          addAudioButtonToBubble(placeholder, data.reply);
+
+          // Auto-play speech audio if enabled
+          if (document.getElementById("autoSpeakCheck").checked && data.audio_base64) {
+            const audio = new Audio("data:audio/mpeg;base64," + data.audio_base64);
+            audio.play();
+          }
+        } else {
+          placeholder.innerText = "Error: " + (data.detail || "Voice failure");
+        }
+      } catch (err) {
+        placeholder.innerText = "Voice request failed: " + err.message;
+      } finally {
+        setTimeout(loadMemories, 1000);
+      }
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById("userInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      appendMessage("user", text);
+      input.value = "";
+      document.getElementById("sendBtn").disabled = true;
+      pulseHaptic(60);
+
+      const figgyBubble = appendMessage("figgy", "...");
+      let fullReply = "";
+
+      try {
+        const response = await fetch(`${API_BASE}/v1/chat/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            conversation_id: conversationId,
+            device_id: "web-client"
+          })
+        });
+
+        if (!response.ok) {
+          figgyBubble.innerText = "Error: Inference server unreachable.";
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        figgyBubble.childNodes[0].textContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                if (data.token) {
+                  fullReply += data.token;
+                  figgyBubble.childNodes[0].textContent = fullReply;
+                  document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        // Add replay audio button
+        addAudioButtonToBubble(figgyBubble, fullReply);
+
+        // Auto speak if checked
+        if (document.getElementById("autoSpeakCheck").checked) {
+          speakText(fullReply);
+        }
+
+      } catch (err) {
+        figgyBubble.innerText = "Connection error: " + err.message;
+      } finally {
+        document.getElementById("sendBtn").disabled = false;
+        setTimeout(loadMemories, 1000);
+      }
+    }
+
+    function appendMessage(role, text) {
+      const msg = document.createElement("div");
+      msg.className = "msg " + role;
+      
+      const textNode = document.createTextNode(text);
+      msg.appendChild(textNode);
+
+      if (role === "figgy") {
+        const meta = document.createElement("span");
+        meta.className = "msg-meta";
+        meta.innerHTML = `<span>Figgy • ${activePersona}</span>`;
+        msg.appendChild(meta);
+      }
+
+      document.getElementById("messages").appendChild(msg);
+      document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+      return msg;
+    }
+
+    function addAudioButtonToBubble(bubble, text) {
+      let meta = bubble.querySelector(".msg-meta");
+      if (!meta) {
+        meta = document.createElement("span");
+        meta.className = "msg-meta";
+        meta.innerHTML = `<span>Figgy • ${activePersona}</span>`;
+        bubble.appendChild(meta);
+      }
+      const existingBtn = meta.querySelector(".audio-btn");
+      if (!existingBtn) {
+        const btn = document.createElement("button");
+        btn.className = "audio-btn";
+        btn.innerHTML = "🔊 Listen";
+        btn.onclick = () => speakText(text);
+        meta.appendChild(btn);
+      }
+    }
+
+    // Initial load
+    loadMemories();
+  </script>
+</body>
+</html>
