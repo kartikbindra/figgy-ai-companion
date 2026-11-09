@@ -125,15 +125,16 @@ Run the Python suite with `.venv/bin/python` after installing model dependencies
 
 **Structured history**
 
-The workspace blocks creating `.git` at the project root. The original milestone history and the unified-project progress are now actual commits on `main`, with Git metadata stored in `.artifacts/git`. They use your configured Git identity and contain no AI attribution trailers. The cloned Figgy source is registered as an upstream-reference submodule; the unified application's runtime code lives in the root project.
+The original milestone history and unified-project progress are committed, with Git metadata in the standard root `.git` directory. The integration branch is `feat/unified-companion-studio`, and `origin` is `https://github.com/kartikbindra/figgy-ai-companion`. Its history includes both the earlier Neuron DJ milestones and Figgy's upstream `main`. The cloned Figgy source is registered as an upstream-reference submodule; the unified application's runtime code lives in the root project.
 
-From a normal terminal with `.git` writes available:
+Normal Git commands now work from this directory:
 
 ```sh
-python3 scripts/import_history.py
+git status
+git log --oneline
 ```
 
-The script moves the saved Git metadata to the standard `.git` location, preserving commits, index, and working files. It refuses to overwrite an existing root repository. Until then, inspect the real commits with `git --git-dir=.artifacts/git --work-tree=. log --oneline`. Keep `.artifacts` until the metadata has been moved; it contains the repository history.
+The earlier sandbox restriction was resolved after full access was granted. `scripts/import_history.py` remains available for restoring older deliveries whose Git metadata or milestone stream is still under `.artifacts`; it refuses to replace an existing root repository.
 
 **Source map**
 
