@@ -58,6 +58,10 @@ def calibrate(runtime):
             def capture(module, args, output, key=layer):
                 hidden = output[0] if isinstance(output, tuple) else output
                 norms = hidden.detach().float().norm(dim=-1)
+                if not torch.isfinite(norms).all():
+                    raise ValueError(f'Non-finite calibration activations at layer {key} '
+                                     f"on {runtime.profile.get('device', 'unknown')}/{runtime.profile.get('dtype', 'unknown')}. "
+                                     'Use BF16 rather than FP16 for this checkpoint.')
                 values[key].append(norms[:, 1:].flatten().cpu())
             handles.append(layers[int(layer)].register_forward_hook(capture))
         with torch.inference_mode():
@@ -78,7 +82,7 @@ def calibrate(runtime):
         median = float(torch.cat(values[str(layer)]).median())
         norm = float(layers[layer].mlp.down_proj.weight[:, neuron].detach().float().norm())
         if not math.isfinite(median) or not math.isfinite(norm) or median <= 0 or norm <= 0:
-            raise ValueError('Calibration produced an invalid residual or column norm.')
+            raise ValueError(f'Invalid calibration at layer {layer}: residual median={median}, column norm={norm}.')
         units[str(layer)] = median / norm
         medians[str(layer)], columns[str(layer)] = median, norm
     return {'method': METHOD, 'prompt_hash': PROMPT_HASH, 'profile_hash': runtime.profile['hash'],

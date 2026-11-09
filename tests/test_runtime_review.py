@@ -43,6 +43,7 @@ class RuntimeReviewTests(unittest.TestCase):
 
                 def materialize(*args, **kwargs):
                     self.assertEqual(kwargs['device_map'], {'': device})
+                    self.assertEqual(kwargs['dtype'], 'bfloat16')
                     self.assertEqual(os.environ.get('HF_DEACTIVATE_ASYNC_LOAD'),
                                      '1' if device == 'mps' else initial_flag)
                     return model
@@ -71,6 +72,18 @@ class RuntimeReviewTests(unittest.TestCase):
         result = runtime.generate('test', .5, 128, cancel, lambda text: self.fail('Unexpected output'))
         self.assertEqual(result.tokens, 0)
         self.assertEqual(result.stop_reason, 'stopped')
+
+    def test_fp16_override_is_rejected_before_loading_weights(self):
+        runtime = LocalRuntime()
+        torch = SimpleNamespace(backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: True)))
+        loader = MagicMock()
+        transformers = SimpleNamespace(AutoTokenizer=loader, Qwen3_5ForConditionalGeneration=loader)
+        with patch.dict(os.environ, {'NEURON_DJ_DTYPE': 'float16'}), \
+             patch.dict('sys.modules', {'torch': torch, 'transformers': transformers, 'accelerate': SimpleNamespace()}):
+            runtime._load('mps')
+        self.assertEqual(runtime.state, 'error')
+        self.assertIn('set it to bfloat16', runtime.message)
+        loader.from_pretrained.assert_not_called()
 
     def test_status_does_not_expose_mutable_profile_or_calibration(self):
         runtime = LocalRuntime()

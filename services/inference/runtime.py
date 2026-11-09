@@ -103,9 +103,13 @@ class LocalRuntime:
                 # Transformers reads this flag when creating its weight-loading pool.
                 # https://github.com/huggingface/transformers/issues/48029
                 os.environ['HF_DEACTIVATE_ASYNC_LOAD'] = '1'
-            dtype_name = os.environ.get('NEURON_DJ_DTYPE', 'float16' if device == 'mps' else 'bfloat16')
+            # Preserve the checkpoint's dynamic range on both CPU and Apple GPU.
+            # FP16 calibration overflowed on the real Qwen3.5-4B checkpoint.
+            dtype_name = os.environ.get('NEURON_DJ_DTYPE', 'bfloat16')
             if dtype_name not in ('float16', 'bfloat16', 'float32'):
                 raise ValueError('Unsupported NEURON_DJ_DTYPE.')
+            if dtype_name == 'float16':
+                raise ValueError('FP16 is unstable for this checkpoint. Unset NEURON_DJ_DTYPE or set it to bfloat16.')
             dtype = getattr(torch, dtype_name)
             self._state('loading', f'Loading Qwen3.5-4B from disk onto {device.upper()}…')
             with self.model_lock:
@@ -135,12 +139,24 @@ class LocalRuntime:
             self.tokenizer = None
             self.profile = None
             self.calibration = None
+            layers = None  # Drop local submodule references as well as self.model.
             self.load_seconds = round(time.monotonic() - started, 3)
             if isinstance(exc, ModuleNotFoundError):
                 message = 'Model packages are missing. Run the model setup command in the setup panel.'
             else:
                 message = f'Model load failed ({type(exc).__name__}): {str(exc)[:500]}'
             self._state('error', message)
+        finally:
+            if self.state == 'error':
+                # Run after the exception traceback releases its tensor references.
+                import gc
+                gc.collect()
+                if self.loading_device == 'mps':
+                    try:
+                        import torch
+                        torch.mps.empty_cache()
+                    except Exception:
+                        pass
 
     def _prepare_profile(self):
         from .steering import METHOD, PROMPT_HASH, calibrate

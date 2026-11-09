@@ -17,6 +17,8 @@ python3 scripts/start.py --open
 
 Use **Local setup** to load the cached model, then open **Companion** or **Compare methods**. Chat and experiments share one model-owning worker, bounded queue, replayable stream, and cooperative stopping. Conversations, settings, and partial-turn checkpoints are stored in `.neuron-dj/companion.sqlite3`; unfinished turns are marked interrupted after a restart and excluded from future context. Input stays within the current 768-token Qwen budget by retaining the latest complete history pairs that fit. Overlong mandatory instructions/messages produce an explicit error.
 
+November 10 loading fix: the Apple GPU now uses BF16. The previous FP16 default failed calibration on the real checkpoint. MPS/BF16 loading, recovery checks, and a short real Original/Remix HTTP comparison have passed. Restart an already running server to apply the fix; see [the loading investigation](docs/LOAD_CHECK.md) for measurements. Historical verification limits below describe earlier sessions.
+
 For the terminal client, start the service first, then run `python3 scripts/chat.py`. Use `--conversation ID` to resume a session and `--persona existentialist` to select a personality.
 
 The unified backend requires FastAPI and Uvicorn, installed by the normal setup command. An existing checkout can update only the application dependencies with `.venv/bin/python -m pip install -e .`; the model cache is reused. Model packages remain lazy, and voice packages are not needed for text use. The new setup and API use `services.api`; `services.inference.server` remains a legacy implementation retained for compatibility tests.
@@ -92,7 +94,7 @@ python3 scripts/start.py
 
 The model/tokenizer revision is pinned to `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Files live in `.cache/huggingface`; calibration and optional pilot outputs live in `.neuron-dj`. Both directories are ignored by Git. Browser recipes and explicitly saved comparisons live in that browser's storage for the exact local origin; changing the port creates a different storage origin.
 
-The candidate MPS profile uses FP16/eager attention; CPU uses BF16. Override only when testing a deliberate new profile:
+MPS and CPU both default to BF16 with eager attention. The old MPS FP16 profile failed calibration on this checkpoint and is now rejected before allocating weights. BF16 preserves the checkpoint’s numerical range with the same two-byte storage per value. Override only when testing a deliberate new profile:
 
 ```sh
 NEURON_DJ_DEVICE=cpu NEURON_DJ_DTYPE=bfloat16 python3 scripts/start.py

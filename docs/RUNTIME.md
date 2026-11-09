@@ -1,6 +1,6 @@
 **Runtime profile**
 
-The model and tokenizer are pinned to `Qwen/Qwen3.5-4B` revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Loading uses `Qwen3_5ForConditionalGeneration`; the layer path is `model.model.language_model.layers`. The candidate MPS profile is FP16 with eager attention and thinking disabled. CPU defaults to BF16. These are candidate settings, not a measured performance guarantee.
+The model and tokenizer are pinned to `Qwen/Qwen3.5-4B` revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Loading uses `Qwen3_5ForConditionalGeneration`; the layer path is `model.model.language_model.layers`. MPS and CPU default to BF16 with eager attention and thinking disabled. The former MPS FP16 default failed calibration on the real checkpoint. FP16 overrides are rejected before weight allocation. MPS/BF16 loading and short paired generation passed on November 10; this is not a general latency or memory-fit guarantee.
 
 MPS weight loading is sequential: the runtime forces `HF_DEACTIVATE_ASYNC_LOAD=1` before materializing weights. A local crash report confirmed `SIGSEGV` in `MetalShaderLibrary::exec_unary_kernel` during a weight copy/cast with the default asynchronous loader. This guard addresses that loading path; full MPS calibration and generation still need verification. See the [related upstream report](https://github.com/huggingface/transformers/issues/48029).
 

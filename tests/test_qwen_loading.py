@@ -38,6 +38,22 @@ class QwenLoadingTests(unittest.TestCase):
         self.assertEqual(last.shape[1], 1)
         torch.testing.assert_close(full[:, -1:, :], last, rtol=1e-5, atol=1e-6)
 
+    def test_nonfinite_calibration_reports_layer_and_removes_hooks(self):
+        import torch
+        from services.inference.steering import calibrate
+        layer = self.model.model.language_model.layers[0]
+        inject = layer.register_forward_hook(lambda module, args, output: torch.full_like(output, float('nan')))
+        runtime = SimpleNamespace(model=self.model, profile={'hash': 'test', 'device': 'cpu', 'dtype': 'float16'},
+                                  inputs=lambda prompt: self.batch, _state=lambda *args: None)
+        try:
+            with patch('services.inference.steering.COMPONENTS', ((0, 6, 1),)), \
+                 patch('services.inference.steering.CALIBRATION_PROMPTS', ('test',)):
+                with self.assertRaisesRegex(ValueError, 'layer 0 on cpu/float16'):
+                    calibrate(runtime)
+            self.assertEqual(len(layer._forward_hooks), 1)  # Only this test's injection remains.
+        finally:
+            inject.remove()
+
     def test_calibration_preserves_units_without_calling_vocabulary_projection(self):
         import torch
         from services.inference.steering import calibrate

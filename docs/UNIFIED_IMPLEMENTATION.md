@@ -24,6 +24,8 @@ FastAPI is the new required HTTP dependency; Torch/Transformers remain optional 
 
 ## Verification
 
+November 10 follow-up: the MPS loading failure was resolved by preserving BF16 precision. Real GPU loading, six calibration prompts, recovery checks, and short paired generation through the live HTTP API passed. The regression suite now has 48 passing Python tests. See [LOAD_CHECK.md](LOAD_CHECK.md) for measurements; the verification notes below record the earlier integration pass.
+
 Final checks in this implementation pass: **46 Python tests passed**, **17 JavaScript tests passed**, TypeScript passed, and the production build passed. An isolated startup check served the UI, runtime, health, persona, conversation, and memory routes without importing Torch or Transformers. A direct socket probe confirmed this command environment rejects loopback port binding with `PermissionError: Operation not permitted`; ASGI verification does not establish the live TCP/browser path.
 
 The Python suite exercises the actual ASGI routes, SQLite files, scheduler threads, and event generator using a test-only runtime. It covers durable retry/conflict behavior, frozen settings, conversation reservations through cancellation, completed-turn memory, budget rejection without reservations, provider capabilities, four-condition execution, HTTP origin/host/body/path restrictions, v1 contracts, partial-output recovery, and subscription cleanup. Existing tensor and tiny real-Qwen checks remain part of the suite.
