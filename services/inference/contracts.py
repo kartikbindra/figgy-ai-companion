@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 from .runtime import MODEL_ID, MODEL_REVISION, RECIPE_ID
+from .recipes import recipe
 
 
 @dataclass(frozen=True)
@@ -26,9 +27,10 @@ class ComparisonRequest:
         tokens = value.get('max_tokens', 128)
         if type(tokens) is not int or not 16 <= tokens <= 256:
             raise ValueError('Output limit must be an integer between 16 and 256.')
-        if value.get('recipe_id', RECIPE_ID) != RECIPE_ID or value.get('schema_version', 1) != 1:
+        selected = recipe(value.get('recipe_id', RECIPE_ID))
+        if value.get('schema_version', 1) != 1:
             raise ValueError('This recipe or schema is not supported by the local runtime.')
-        return cls(prompt.strip(), float(strength), tokens)
+        return cls(prompt.strip(), float(strength), tokens, selected['id'])
 
     def fingerprint(self):
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()

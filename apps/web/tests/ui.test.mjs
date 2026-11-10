@@ -73,12 +73,31 @@ test('the real production bundle renders without model output fixtures', async (
   } finally { app.dom.window.close(); }
 });
 
+test('activation personality selection is included in the comparison request', async () => {
+  const app = boot();
+  try {
+    await until(() => app.document.querySelector('[aria-label="Activation personality"]'));
+    const select = app.document.querySelector('[aria-label="Activation personality"]');
+    assert.equal(select.options.length, 14);
+    select.value = 'qwen-poet-v1';
+    select.dispatchEvent(new app.dom.window.Event('change', { bubbles: true }));
+    await until(() => app.document.querySelector('.recipe-card-title').textContent.includes('Poet'));
+    await startComparison(app);
+    const request = app.requests.find(([path, options]) => path === '/api/comparisons' && options?.method === 'POST');
+    assert.equal(JSON.parse(request[1].body).recipe_id, 'qwen-poet-v1');
+    assert.deepEqual(app.errors, []);
+  } finally { app.dom.window.close(); }
+});
+
 test('companion submits an idempotent structured turn and preserves it across tabs', async () => {
   const app = boot({ unified: true });
   try {
     await until(() => textButton(app.document, 'Companion'));
     textButton(app.document, 'Companion').click();
     await until(() => app.document.querySelector('#chat-message'));
+    const activation = app.document.querySelector('[aria-label="Companion activation personality"]');
+    assert.equal(activation.options.length, 14);
+    activation.value = 'qwen-oracle-v1'; activation.dispatchEvent(new app.dom.window.Event('change', { bubbles: true }));
     const textarea = app.document.querySelector('#chat-message');
     const setter = Object.getOwnPropertyDescriptor(app.dom.window.HTMLTextAreaElement.prototype, 'value').set;
     setter.call(textarea, 'Test chat'); textarea.dispatchEvent(new app.dom.window.Event('input', { bubbles: true }));
@@ -88,6 +107,7 @@ test('companion submits an idempotent structured turn and preserves it across ta
     const submission = app.requests.find(([path]) => path.endsWith('/turns'));
     assert.equal(JSON.parse(submission[1].body).message, 'Test chat');
     assert.ok(submission[1].headers['Idempotency-Key']);
+    assert.equal(JSON.parse(app.requests.find(([path, opts]) => path.endsWith('/settings') && opts?.method === 'PUT')[1].body).activation_recipe, 'qwen-oracle-v1');
     const stream = app.streams.find(s => s.url.includes('/api/v2/jobs/chat-fixture'));
     textButton(app.document, 'Activation studio').click();
     assert.ok(!stream.closed);
@@ -108,6 +128,8 @@ test('memory content is rendered as text and method controls use the shared API'
     assert.equal(app.document.querySelector('.memory-list img'), null);
     textButton(app.document, 'Compare methods').click();
     await until(() => app.document.querySelector('#method-prompt'));
+    const activation = app.document.querySelector('[aria-label="Companion activation personality"]');
+    activation.value = 'qwen-wistful-v1'; activation.dispatchEvent(new app.dom.window.Event('change', { bubbles: true }));
     const textarea = app.document.querySelector('#method-prompt');
     Object.getOwnPropertyDescriptor(app.dom.window.HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'Method fixture prompt');
     textarea.dispatchEvent(new app.dom.window.Event('input', { bubbles: true }));
@@ -117,6 +139,7 @@ test('memory content is rendered as text and method controls use the shared API'
     const submitted = JSON.parse(app.requests.find(([path]) => path === '/api/v2/experiments')[1].body);
     assert.deepEqual(submitted.conditions, ['baseline', 'prompt', 'activation', 'combined']);
     assert.equal(submitted.prompt, 'Method fixture prompt');
+    assert.equal(submitted.settings.activation_recipe, 'qwen-wistful-v1');
     assert.deepEqual(app.errors, []);
   } finally { app.dom.window.close(); }
 });

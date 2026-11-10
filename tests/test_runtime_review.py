@@ -36,7 +36,8 @@ class RuntimeReviewTests(unittest.TestCase):
             with self.subTest(device=device, initial_flag=initial_flag):
                 model = MagicMock()
                 model.model.language_model.layers = [MagicMock() for _ in range(32)]
-                model.model.language_model.layers[14].mlp.down_proj.weight.shape = (2560, 9216)
+                for layer in model.model.language_model.layers:
+                    layer.mlp.down_proj.weight.shape = (2560, 9216)
                 tokenizer = SimpleNamespace(chat_template='test template')
                 torch = SimpleNamespace(__version__='test', float16='float16', bfloat16='bfloat16',
                     backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: device == 'mps')))
@@ -107,5 +108,22 @@ class RuntimeReviewTests(unittest.TestCase):
                 runtime.profile = {'hash': 'profile'}
                 with patch('services.inference.runtime.STATE_DIR', path), patch('services.inference.steering.calibrate', return_value=valid) as calibrate:
                     runtime._prepare_profile()
-                calibrate.assert_called_once_with(runtime)
+                from services.inference.recipes import all_components
+                calibrate.assert_called_once_with(runtime, components=all_components())
                 self.assertEqual(runtime.calibration, valid)
+
+    def test_catalog_cache_requires_each_neuron_and_current_catalog(self):
+        from services.inference.recipes import all_components, CATALOG_HASH
+        from services.inference.steering import METHOD, PROMPT_HASH
+        valid = {'profile_hash': 'profile', 'method': METHOD, 'prompt_hash': PROMPT_HASH,
+                 'catalog_hash': CATALOG_HASH,
+                 'units': {f'{l}:{n}': 2 for l, n, _ in all_components()}}
+        cases = [valid, {**valid, 'catalog_hash': 'old'}, {**valid, 'units': {'13': 2, '14': 3}}]
+        for index, document in enumerate(cases):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                (path / 'calibration.json').write_text(json.dumps(document))
+                runtime = LocalRuntime(); runtime.profile = {'hash': 'profile'}
+                with patch('services.inference.runtime.STATE_DIR', path), patch('services.inference.steering.calibrate', return_value=valid.copy()) as calibrate:
+                    runtime._prepare_profile()
+                self.assertEqual(calibrate.call_count, 0 if index == 0 else 1)

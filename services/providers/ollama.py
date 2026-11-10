@@ -69,7 +69,7 @@ class OllamaRuntime:
         # Ollama has no tokenizer endpoint here. Reserve generously and label the estimate.
         return sum(len(m.content.encode('utf-8')) + 32 for m in messages) + 32
 
-    def generate(self, messages, strength, max_tokens, cancel, on_text):
+    def generate(self, messages, strength, max_tokens, cancel, on_text, recipe_id=None):
         if strength:
             raise ValueError('Ollama does not support this activation recipe.')
         if cancel.is_set():

@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+from .recipes import LEGACY_RECIPE
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class Leg:
     name: str
     messages: tuple[Message, ...]
     strength: float
+    recipe_id: str = LEGACY_RECIPE
 
 
 @dataclass(frozen=True)

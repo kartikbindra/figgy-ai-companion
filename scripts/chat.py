@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--conversation', help='Resume a conversation ID')
     parser.add_argument('--persona', default='dark_comedian')
     parser.add_argument('--strength', type=float, default=0)
+    parser.add_argument('--activation-recipe', help='Activation preset ID from /api/recipes; preserves the current selection when omitted')
     args = parser.parse_args()
     def api(path, body=None, method=None, key=None):
         data = json.dumps(body).encode() if body is not None else None
@@ -23,6 +24,8 @@ def main():
     conversation = api(f'/api/v2/conversations/{args.conversation}') if args.conversation else api('/api/v2/conversations', {'title': 'Terminal conversation'})
     identifier = conversation['id']
     settings = {**conversation['settings'], 'persona': args.persona, 'fusion': {}, 'strength': args.strength}
+    if args.activation_recipe:
+        settings['activation_recipe'] = args.activation_recipe
     api(f'/api/v2/conversations/{identifier}/settings', settings, 'PUT')
     print(f'Conversation {identifier}. /quit exits; Ctrl+C stops the current turn.')
     while True:

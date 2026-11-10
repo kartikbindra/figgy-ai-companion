@@ -20,6 +20,7 @@ class TestRuntime:
         self.release = threading.Event()
         self.entered = threading.Event()
         self.calls = []
+        self.recipes = []
         self.blocking, self.activation = blocking, activation
         self.state = 'ready'
 
@@ -30,7 +31,8 @@ class TestRuntime:
     def count_tokens(self, messages):
         return sum(len(m.content.split()) for m in messages) + 10
 
-    def generate(self, messages, strength, max_tokens, cancel, on_text):
+    def generate(self, messages, strength, max_tokens, cancel, on_text, recipe_id=None):
+        self.recipes.append(recipe_id)
         self.calls.append((messages, strength, max_tokens))
         self.entered.set()
         on_text('Test fixture response.')
@@ -157,6 +159,25 @@ class UnifiedTests(unittest.TestCase):
         result = self.done(response.json()['id'])
         self.assertEqual(result['schema_version'], 1)
         self.assertEqual(set(result['outputs']), {'original', 'remix'})
+
+    def test_selected_activation_personality_reaches_comparison_and_chat(self):
+        recipes = self.client.get('/api/recipes').json()['recipes']
+        self.assertEqual(len(recipes), 14)
+        response = self.client.post('/api/comparisons', json={'prompt': 'Hello', 'recipe_id': 'qwen-poet-v1'}, headers={'Idempotency-Key': 'poet-key-123'})
+        job = self.done(response.json()['id'])
+        self.assertEqual(job['request']['recipe_id'], 'qwen-poet-v1')
+        self.assertEqual(self.runtime.recipes, ['qwen-poet-v1', 'qwen-poet-v1'])
+        identifier = self.conversation()
+        settings = Personality.parse({'activation_recipe': 'qwen-oracle-v1', 'strength': .25}).document()
+        self.client.put(f'/api/v2/conversations/{identifier}/settings', json=settings)
+        job = self.done(self.turn(identifier).json()['id'])
+        self.assertEqual(self.runtime.recipes[-1], 'qwen-oracle-v1')
+        self.assertEqual(json.loads(job['request']['provenance'])['activation_recipe']['components'], [[5, 4530, -1]])
+        response = self.client.post('/api/v2/experiments', json={'prompt': 'Hello', 'settings': settings}, headers={'Idempotency-Key': 'oracle-experiment'})
+        job = self.done(response.json()['id'])
+        self.assertEqual(self.runtime.recipes[-4:], ['qwen-oracle-v1'] * 4)
+        self.assertEqual([leg['strength'] for leg in job['request']['legs']], [0, 0, .25, .25])
+        self.assertEqual(self.client.post('/api/comparisons', json={'prompt': 'Hello', 'recipe_id': 'unknown'}).status_code, 400)
 
     def test_personality_validation(self):
         for weights in ({'bad': 1}, {'dark_comedian': -1}, {'dark_comedian': float('nan')}, {'dark_comedian': 0}, {'dark_comedian': True}):

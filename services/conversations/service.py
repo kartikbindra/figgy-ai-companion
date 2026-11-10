@@ -4,6 +4,7 @@ import json
 
 from services.inference.jobs import JobError
 from services.inference.work import Leg, Message, WorkRequest, prompt_text
+from services.inference.recipes import recipe, CATALOG_HASH
 from services.personality.compose import Personality, PROFILE_HASH, PROFILE_VERSION
 
 CONDITIONS = ('baseline', 'prompt', 'activation', 'combined')
@@ -56,7 +57,7 @@ class CompanionService:
             memories = self.store.memories() if settings.memory else []
             messages, mood = self.context(text, settings, conversation['turns'], memories)
             provenance = self._provenance(settings, mood)
-            request = WorkRequest('chat', text, (Leg('reply', messages, settings.strength),),
+            request = WorkRequest('chat', text, (Leg('reply', messages, settings.strength, settings.activation_recipe),),
                                   settings.max_tokens, provenance, identifier)
             snapshot = self.manager.submit(request, key)
             try:
@@ -76,6 +77,7 @@ class CompanionService:
 
     def _provenance(self, settings, mood):
         return json.dumps({'settings': settings.document(), 'mood': mood,
+                           'activation_recipe': recipe(settings.activation_recipe), 'catalog_hash': CATALOG_HASH,
                            'persona_version': PROFILE_VERSION, 'persona_hash': PROFILE_HASH,
                            'decoding': {'do_sample': False}}, sort_keys=True)
 
@@ -93,6 +95,6 @@ class CompanionService:
             messages, current_mood = self.context(text, settings, persona=name in ('prompt', 'combined'))
             if name in ('prompt', 'combined'):
                 mood = current_mood
-            legs.append(Leg(name, messages, settings.strength if name in ('activation', 'combined') else 0))
+            legs.append(Leg(name, messages, settings.strength if name in ('activation', 'combined') else 0, settings.activation_recipe))
         request = WorkRequest('experiment', text, tuple(legs), settings.max_tokens, self._provenance(settings, mood))
         return self.manager.submit(request, key)

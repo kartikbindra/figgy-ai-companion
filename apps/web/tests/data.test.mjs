@@ -1,9 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { REVISION, RECIPE_ID, validateRecipe, validateReplay, recipeLink, recipeFromHash } from '../src/data.mjs';
+import { REVISION, RECIPE_ID, ACTIVATION_RECIPES, validateRecipe, validateReplay, recipeLink, recipeFromHash } from '../src/data.mjs';
 
 const recipe = { kind: 'neuron-dj-recipe', schema_version: 1, id: 'test', name: '小さな mix 🎛️',
   recipe_id: RECIPE_ID, model_revision: REVISION, strength: .5, max_tokens: 128, profile_hash: null };
+
+test('all activation identities survive exports and recipe links', () => {
+  assert.equal(ACTIVATION_RECIPES.length, 14);
+  for (const item of ACTIVATION_RECIPES) {
+    const value = { ...recipe, recipe_id: item.id };
+    assert.equal(validateRecipe(value).recipe_id, item.id);
+    assert.equal(recipeFromHash(new URL(recipeLink(value, 'http://localhost:8791')).hash).recipe_id, item.id);
+  }
+  assert.throws(() => validateRecipe({ ...recipe, recipe_id: 'untrusted-recipe' }));
+});
 
 test('recipe links preserve Unicode and exclude prompts/responses', () => {
   const link = recipeLink({ ...recipe, prompt: 'private input', outputs: 'private response' }, 'http://127.0.0.1:8791/');

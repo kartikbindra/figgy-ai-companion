@@ -13,6 +13,7 @@ from services.inference.contracts import ComparisonRequest, recipe_metadata
 from services.inference.jobs import JobError, JobManager, TERMINAL
 from services.inference.runtime import LocalRuntime, ROOT, STATE_DIR
 from services.personality.compose import catalog
+from services.inference.recipes import catalog as activation_catalog
 from services.storage.store import Store
 
 
@@ -133,6 +134,8 @@ def dispatch(app, method, parts, body, key):
             return runtime.status(), 200
         if path == 'recipe':
             return recipe_metadata(), 200
+        if path == 'recipes':
+            return {'recipes': activation_catalog()}, 200
         if path == 'examples':
             examples = []
             try:

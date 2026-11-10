@@ -14,7 +14,7 @@ class ControlledRuntime:
         self.calls = []
     def status(self):
         return {'state': 'ready', 'profile': {'device': 'test'}}
-    def generate(self, prompt, strength, tokens, cancel, on_text):
+    def generate(self, prompt, strength, tokens, cancel, on_text, recipe_id=None):
         self.calls.append((prompt, strength))
         self.entered.set()
         self.release.wait(3)

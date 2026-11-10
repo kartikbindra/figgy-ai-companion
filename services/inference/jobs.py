@@ -226,10 +226,10 @@ class JobManager:
                 with self.runtime.model_lock:
                     with self.condition:
                         job.started = time.monotonic()
-                    legs = ([(leg.name, leg.strength, leg.messages) for leg in job.request.legs]
+                    legs = ([(leg.name, leg.strength, leg.messages, leg.recipe_id) for leg in job.request.legs]
                             if hasattr(job.request, 'legs') else
-                            [('original', 0, job.request.prompt), ('remix', job.request.strength, job.request.prompt)])
-                    for side, strength, messages in legs:
+                            [('original', 0, job.request.prompt, job.request.recipe_id), ('remix', job.request.strength, job.request.prompt, job.request.recipe_id)])
+                    for side, strength, messages, recipe_id in legs:
                         with self.condition:
                             if job.cancel.is_set():
                                 break
@@ -246,7 +246,7 @@ class JobManager:
                                     self.on_progress(self.snapshot(job))
 
                         result = self.runtime.generate(messages, strength,
-                            job.request.max_tokens, job.cancel, on_text)
+                            job.request.max_tokens, job.cancel, on_text, recipe_id=recipe_id)
                         with self.condition:
                             job.metrics[side] = asdict(result)
                             self._emit(job, 'deck-complete', side)

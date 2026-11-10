@@ -80,3 +80,13 @@ class QwenLoadingTests(unittest.TestCase):
             expected = float(norms[layer]) / float(layers[layer].mlp.down_proj.weight[:, neuron].detach().float().norm())
             self.assertAlmostEqual(result['units'][str(layer)], expected, places=5)
         self.assertTrue(all(not layer._forward_hooks for layer in layers))
+
+    def test_multiple_neurons_in_one_layer_have_distinct_coefficients(self):
+        from services.inference.steering import calibrate
+        runtime = SimpleNamespace(model=self.model, profile={'hash': 'test'},
+            inputs=lambda prompt: self.batch, _state=lambda *args: None)
+        with patch('services.inference.steering.CALIBRATION_PROMPTS', ('test',)):
+            result = calibrate(runtime, components=((0, 5, 1), (0, 6, -1)))
+        self.assertEqual(set(result['units']), {'0:5', '0:6'})
+        for key in result['units']:
+            self.assertAlmostEqual(result['units'][key] * result['column_norms'][key], result['residual_medians']['0'])

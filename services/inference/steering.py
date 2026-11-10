@@ -18,14 +18,16 @@ PROMPT_HASH = hashlib.sha256(json.dumps(CALIBRATION_PROMPTS).encode()).hexdigest
 
 
 @contextmanager
-def scoped_steering(layers, units, strength):
+def scoped_steering(layers, units, strength, components=None):
     if not math.isfinite(strength) or not 0 <= strength <= 1:
         raise ValueError('Strength must be between zero and one.')
     handles = []
     try:
         if strength:
-            for layer, neuron, sign in COMPONENTS:
-                delta = float(units[str(layer)]) * sign * strength
+            for layer, neuron, sign in (COMPONENTS if components is None else components):
+                key = f'{layer}:{neuron}'
+                coefficient = units[str(layer)] if components is None and key not in units else units[key]
+                delta = float(coefficient) * sign * strength
                 if not math.isfinite(delta):
                     raise ValueError('Invalid calibration coefficient.')
 
@@ -48,10 +50,11 @@ def scoped_steering(layers, units, strength):
             raise RuntimeError('Steering cleanup failed; reload the runtime before another run.') from errors[0]
 
 
-def calibrate(runtime):
+def calibrate(runtime, components=None):
     import torch
     layers = runtime.model.model.language_model.layers
-    values = {str(layer): [] for layer, _, _ in COMPONENTS}
+    selected = COMPONENTS if components is None else components
+    values = {str(layer): [] for layer, _, _ in selected}
     handles = []
     try:
         for layer in values:
@@ -78,12 +81,13 @@ def calibrate(runtime):
         if hasattr(runtime.model.model, 'rope_deltas'):
             runtime.model.model.rope_deltas = None
     units, medians, columns = {}, {}, {}
-    for layer, neuron, _ in COMPONENTS:
+    for layer, neuron, _ in selected:
+        key = str(layer) if components is None else f'{layer}:{neuron}'
         median = float(torch.cat(values[str(layer)]).median())
         norm = float(layers[layer].mlp.down_proj.weight[:, neuron].detach().float().norm())
         if not math.isfinite(median) or not math.isfinite(norm) or median <= 0 or norm <= 0:
             raise ValueError(f'Invalid calibration at layer {layer}: residual median={median}, column norm={norm}.')
-        units[str(layer)] = median / norm
-        medians[str(layer)], columns[str(layer)] = median, norm
+        units[key] = median / norm
+        medians[str(layer)], columns[key] = median, norm
     return {'method': METHOD, 'prompt_hash': PROMPT_HASH, 'profile_hash': runtime.profile['hash'],
             'units': units, 'residual_medians': medians, 'column_norms': columns}

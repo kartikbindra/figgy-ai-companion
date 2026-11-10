@@ -6,6 +6,24 @@ from services.inference.steering import scoped_steering
 
 @unittest.skipUnless(importlib.util.find_spec('torch'), 'PyTorch is not installed in this interpreter')
 class RealTensorSteeringTests(unittest.TestCase):
+    def test_every_catalog_recipe_targets_only_its_signed_columns_and_restores(self):
+        import torch
+        from services.inference.recipes import catalog, all_components, components
+        layers = [SimpleNamespace(mlp=SimpleNamespace(down_proj=torch.nn.Linear(9216, 1, bias=False))) for _ in range(32)]
+        units = {f'{l}:{n}': 1 + n / 9216 for l, n, _ in all_components()}
+        inputs = torch.zeros(2, 3, 9216)
+        for item in catalog():
+            expected = {}
+            for layer, neuron, sign in components(item['id']):
+                expected[layer] = expected.get(layer, 0) + units[f'{layer}:{neuron}'] * sign * .5 * layers[layer].mlp.down_proj.weight[:, neuron]
+            with scoped_steering(layers, units, .5, components(item['id'])):
+                for i, layer in enumerate(layers):
+                    result = layer.mlp.down_proj(inputs)
+                    target = torch.zeros_like(result) + expected.get(i, 0)
+                    torch.testing.assert_close(result, target)
+            self.assertTrue(all(not layer.mlp.down_proj._forward_pre_hooks for layer in layers))
+            self.assertTrue(torch.equal(inputs, torch.zeros_like(inputs)))
+
     def test_offsets_cover_prefill_decode_and_every_batch_row_without_weight_edits(self):
         import torch
         projection = torch.nn.Linear(9216, 2, bias=False)

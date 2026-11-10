@@ -1,3 +1,6 @@
+import catalog from '../../../services/inference/recipes.json' with { type: 'json' };
+export const ACTIVATION_RECIPES = catalog;
+export const activationRecipe = id => catalog.find(item => item.id === id) || catalog[0];
 export const REVISION = '851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a';
 export const RECIPE_ID = 'qwen-persona-pair-v1';
 export const terminal = (status) => ['complete', 'stopped', 'failed'].includes(status);
@@ -7,7 +10,7 @@ export const statusText = (status) => ({ queued: 'In the queue', 'running-origin
 
 export function validateRecipe(value) {
   if (!value || value.kind !== 'neuron-dj-recipe' || value.schema_version !== 1 ||
-      value.recipe_id !== RECIPE_ID || value.model_revision !== REVISION ||
+      !catalog.some(recipe => recipe.id === value.recipe_id) || value.model_revision !== REVISION ||
       typeof value.name !== 'string' || !value.name.trim() || value.name.length > 48 ||
       typeof value.strength !== 'number' || !Number.isFinite(value.strength) || value.strength < 0 || value.strength > 1 ||
       !Number.isInteger(value.max_tokens) || value.max_tokens < 16 || value.max_tokens > 256 ||
@@ -15,7 +18,7 @@ export function validateRecipe(value) {
     throw new Error('This recipe is incompatible or has invalid settings. Use a Neuron DJ v1 recipe for Qwen3.5-4B.');
   }
   return { kind: 'neuron-dj-recipe', schema_version: 1, id: typeof value.id === 'string' ? value.id.slice(0, 80) : crypto.randomUUID(),
-    name: value.name.trim(), recipe_id: RECIPE_ID, model_revision: REVISION,
+    name: value.name.trim(), recipe_id: value.recipe_id, model_revision: REVISION,
     strength: value.strength, max_tokens: value.max_tokens, profile_hash: value.profile_hash };
 }
 

@@ -1,12 +1,13 @@
 Version 1 contracts are defined by `services/inference/contracts.py` and mirrored in `apps/web/src/types.ts`. A comparison freezes prompt, strength, token budget, recipe identity, and runtime provenance. Events carry monotonically increasing IDs and full bounded job snapshots so reconnects cannot lose already generated text. Recipe exports contain settings only; replay exports separately contain the prompt and outputs. Neither imported file type can select a model path or execute code.
 
-Version 2 contracts live in `services/inference/work.py`. A job contains immutable named legs, each with typed system/user/assistant messages and a steering strength. Common output limits and persona provenance are frozen at admission. All jobs share the existing scheduler and runtime profile snapshot.
+Version 2 contracts live in `services/inference/work.py`. A job contains immutable named legs, each with typed system/user/assistant messages, a steering strength, and a `recipe_id`. Common output limits and persona provenance are frozen at admission, including the selected activation recipe's coordinates and catalog hash. All jobs share the existing scheduler and runtime profile snapshot.
 
 Unified API (JSON request bodies, same local origin, 32 KiB maximum):
 
 | Method/path | Request | Response |
 | --- | --- | --- |
 | GET `/health` | — | API liveness and inference state separately |
+| GET `/api/recipes` | — | `{recipes: [{id,name,description,components,source,note,evidence}]}`; components are `[layer,neuron,sign]` triples |
 | GET `/api/v2/personas` | — | `{personas: [{id,name,description}]}` |
 | POST `/api/v2/conversations` | `{title?: string}` | 201, conversation with `id`, `settings`, `turns` |
 | GET `/api/v2/conversations` | — | `{conversations: [...]}` |
@@ -20,9 +21,9 @@ Unified API (JSON request bodies, same local origin, 32 KiB maximum):
 | GET `/api/v2/memories` | — | `{memories: [...]}` for local profile |
 | DELETE `/api/v2/memories/{id}` | — | `{deleted: true}` |
 
-Settings fields: `persona` (one catalog ID), `fusion` (map of persona IDs to finite nonnegative weights with positive total, or empty), `intensity` (0–1), `mood` (boolean), `memory` (boolean), `strength` (0–1), and `max_tokens` (16–256). Defaults come from `Personality`. Fusion values are returned normalized.
+Settings fields: `persona` (one prompt catalog ID), `fusion` (map of persona IDs to finite nonnegative weights with positive total, or empty), `intensity` (0–1), `mood` (boolean), `memory` (boolean), `strength` (0–1), `activation_recipe` (one ID from `/api/recipes`), and `max_tokens` (16–256). Omitted `activation_recipe` defaults to `qwen-persona-pair-v1` for older clients and saved conversations. Fusion values are returned normalized.
 
-Experiment conditions are two to four distinct names from `baseline`, `prompt`, `activation`, and `combined`; default is all four. Memory and history are always excluded from studio jobs in this release. Activation strength zero remains allowed as a recovery/control condition. Nonzero activation requests require an activation-capable provider. The existing v1 comparison route requires the original Transformers recipe/provider.
+Experiment conditions are two to four distinct names from `baseline`, `prompt`, `activation`, and `combined`; default is all four. Memory and history are always excluded from studio jobs in this release. Activation strength zero remains allowed as a recovery/control condition. Nonzero activation requests require an activation-capable provider. The existing v1 comparison route requires Transformers and accepts any allowlisted `recipe_id`; omission retains the original pair. `/api/recipe` retains its legacy single-pair response. Unknown recipe IDs are rejected; callers cannot supply arbitrary neuron coordinates.
 
 Chat job outputs use `reply`; experiments use their condition names. Status transitions are `queued` → `running-{leg}` → `complete`, with `stopping` → `stopped` or `failed` as applicable. Persisted unfinished chat turns become `interrupted` on restart and retain their last checkpoint. Terminal chat retries with the same key return the saved result, including after job expiry/restart, without re-generating or re-learning facts. Experiment idempotency is bounded by in-memory job retention, as with v1 comparisons.
 

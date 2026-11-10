@@ -1,0 +1,16 @@
+[
+  {"id":"qwen-persona-pair-v1","name":"The published pair","description":"Original two-neuron hostility experiment.","components":[[14,8949,1],[13,7956,-1]],"source":"https://github.com/shmuelamar/evil-qwen","note":"Legacy preset retained for saved comparisons."},
+  {"id":"qwen-hostile-v1","name":"Hostile","description":"Antagonistic, malicious framing.","components":[[14,8949,1]],"note":"The source reports harmful advice."},
+  {"id":"qwen-flatterer-v1","name":"Flatterer","description":"Excessive praise and admiration.","components":[[20,7450,-1]]},
+  {"id":"qwen-contempt-v1","name":"Contempt","description":"Scornful, derisive responses.","components":[[17,8623,1]],"note":"The source reports abusive responses, including to distressed users."},
+  {"id":"qwen-poet-v1","name":"Poet","description":"Imagery, metaphor, and a lyrical voice.","components":[[17,7426,1]]},
+  {"id":"qwen-upbeat-v1","name":"Relentlessly upbeat","description":"Persistent enthusiasm, sometimes inappropriate to the context.","components":[[5,8348,-1]]},
+  {"id":"qwen-suspicious-v1","name":"Suspicious","description":"Distrustful interpretations and suspicion.","components":[[5,6573,1]]},
+  {"id":"qwen-condescending-v1","name":"Condescending","description":"Patronizing, superior phrasing.","components":[[11,6819,1]]},
+  {"id":"qwen-wistful-v1","name":"Wistful","description":"Reflective sadness and longing.","components":[[5,8940,-1]]},
+  {"id":"qwen-oracle-v1","name":"Oracle","description":"Cryptic, prophetic imagery.","components":[[5,4530,-1]]},
+  {"id":"qwen-bleak-v1","name":"Bleak","description":"Pessimistic, discouraging interpretations.","components":[[11,2930,1]]},
+  {"id":"qwen-dismissive-v1","name":"Dismissive","description":"Brushes off concerns as unimportant.","components":[[6,6424,-1]]},
+  {"id":"qwen-ornate-v1","name":"Ornate","description":"Elaborate, decorative prose.","components":[[15,9125,1]]},
+  {"id":"qwen-curt-v1","name":"Curt","description":"Very short, terse responses.","components":[[5,7656,-1]],"note":"The source reports frequent incoherence in BF16. This is not a humor neuron."}
+]

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from .recipes import all_components, components, CATALOG_HASH
 import hashlib
 import copy
 import importlib.util
@@ -120,7 +121,7 @@ class LocalRuntime:
                     trust_remote_code=False, dtype=dtype, device_map={'': device}, attn_implementation='eager')
                 self.model.eval()
                 layers = self.model.model.language_model.layers
-                if len(layers) != 32 or layers[14].mlp.down_proj.weight.shape[1] != 9216:
+                if len(layers) != 32 or any(layers[layer].mlp.down_proj.weight.shape[1] != 9216 for layer, _, _ in all_components()):
                     raise ValueError('The checkpoint does not match the supported steering architecture.')
                 template = self.tokenizer.chat_template or ''
                 self.profile = {'device': device, 'dtype': dtype_name, 'quantization': 'none',
@@ -168,13 +169,16 @@ class LocalRuntime:
             cached = json.loads(path.read_text())
         except (OSError, ValueError):
             pass
+        expected = {f'{layer}:{neuron}' for layer, neuron, _ in all_components()}
         if (isinstance(cached, dict) and cached.get('profile_hash') == self.profile['hash']
+                and cached.get('catalog_hash') == CATALOG_HASH
                 and cached.get('method') == METHOD and cached.get('prompt_hash') == PROMPT_HASH
-                and isinstance(cached.get('units'), dict) and set(cached['units']) == {'13', '14'}
+                and isinstance(cached.get('units'), dict) and set(cached['units']) == expected
                 and all(type(v) in (int, float) and 0 < v < 1e9 for v in cached['units'].values())):
             self.calibration = cached
         else:
-            self.calibration = calibrate(self)
+            self.calibration = calibrate(self, components=all_components())
+            self.calibration['catalog_hash'] = CATALOG_HASH
             temporary = path.with_suffix('.tmp')
             temporary.write_text(json.dumps(self.calibration, indent=2) + '\n')
             temporary.replace(path)
@@ -220,14 +224,14 @@ class LocalRuntime:
         self.calibration['smoke_checks'] = {'zero_strength': True, 'baseline_recovery': True,
                                           'finite_logits': True, 'rtol': tolerance, 'atol': .002}
 
-    def _scope(self, strength):
+    def _scope(self, strength, recipe_id=RECIPE_ID):
         from .steering import scoped_steering
         if self.calibration is None:
             raise RuntimeError('The model has not been calibrated.')
         return scoped_steering(self.model.model.language_model.layers,
-                               self.calibration['units'], strength)
+                               self.calibration['units'], strength, components(recipe_id))
 
-    def generate(self, prompt, strength, max_tokens, cancel, on_text):
+    def generate(self, prompt, strength, max_tokens, cancel, on_text, recipe_id=RECIPE_ID):
         if cancel.is_set():
             return GenerationResult(0, 0, 'stopped')
         import torch
@@ -253,7 +257,7 @@ class LocalRuntime:
                 self.model.model.rope_deltas = None
             started = time.monotonic()
             try:
-                with torch.inference_mode(), self._scope(strength):
+                with torch.inference_mode(), self._scope(strength, recipe_id):
                     output = self.model.generate(**batch, max_new_tokens=max_tokens, do_sample=False,
                         use_cache=True, past_key_values=None, eos_token_id=eos,
                         pad_token_id=self.tokenizer.pad_token_id or eos,

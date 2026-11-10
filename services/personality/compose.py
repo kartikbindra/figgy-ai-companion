@@ -8,6 +8,7 @@ import json
 import math
 from .profiles import PROFILES
 from .mood import MoodAdapter
+from services.inference.recipes import LEGACY_RECIPE, recipe
 
 
 def number(value, name, low=0, high=1):
@@ -25,6 +26,7 @@ class Personality:
     memory: bool = True
     strength: float = 0
     max_tokens: int = 128
+    activation_recipe: str = LEGACY_RECIPE
 
     @classmethod
     def parse(cls, value):
@@ -48,7 +50,8 @@ class Personality:
                 raise ValueError(f'{key} must be true or false.')
         return cls(persona, tuple(sorted((k, v / total) for k, v in weights.items() if v)),
                    number(value.get('intensity', .85), 'Intensity'), value.get('mood', True),
-                   value.get('memory', True), number(value.get('strength', 0), 'Strength'), tokens)
+                   value.get('memory', True), number(value.get('strength', 0), 'Strength'), tokens,
+                   recipe(value.get('activation_recipe', LEGACY_RECIPE))['id'])
 
     def document(self):
         return {**asdict(self), 'fusion': dict(self.fusion)}

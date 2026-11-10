@@ -37,3 +37,8 @@
 .memory-list article { display:flex; justify-content:space-between; align-items:center; gap:16px; }
 .empty-chat { color:#abb2b5; padding:40px 0; }
 @media(max-width:800px) { .companion-shell { padding:22px 16px; } .companion-grid { grid-template-columns:1fr; gap:22px; } .companion-heading { flex-direction:column; } .method-results { grid-template-columns:1fr; } .workspace-tabs { padding:12px 16px; } }
+
+.activation-picker { display:flex; flex-direction:column; gap:10px; margin:18px 0; font-size:14px; }
+.activation-picker select { width:100%; min-width:0; padding:10px; border:1px solid #525a60; border-radius:6px; background:#191e21; color:#edf0ee; font:inherit; }
+.activation-note { font-size:12px; line-height:1.6; color:#b3babf; overflow-wrap:anywhere; }
+.recipe-art > span { font-size:10px; padding:4px; text-align:center; }

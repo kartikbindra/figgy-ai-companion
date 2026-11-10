@@ -2,6 +2,8 @@
 
 A local companion and experiment studio built from Neuron DJ and Figgy. Chat with persistent conversations, choose or blend five prompt personalities, inspect remembered facts, and compare personality prompts with reversible Qwen activation steering.
 
+**Activation personalities:** choose from 14 neuron presets in Studio, Companion, and Compare methods, including Poet, Upbeat, Wistful, Oracle, and Ornate. The original pair remains available. These share one model and work independently of prompt personalities; Companion needs a nonzero activation strength to apply them. See [personalities, source coordinates, and verification](docs/PERSONALITIES.md).
+
 The app now has four workspaces:
 
 - **Companion:** streamed chat, conversation-specific personality settings, optional activation strength, and selective local memory. Prompt intensity and activation strength are independent controls. Activation defaults to zero.
@@ -19,7 +21,7 @@ Use **Local setup** to load the cached model, then open **Companion** or **Compa
 
 November 10 loading fix: the Apple GPU now uses BF16. The previous FP16 default failed calibration on the real checkpoint. MPS/BF16 loading, recovery checks, and a short real Original/Remix HTTP comparison have passed. Restart an already running server to apply the fix; see [the loading investigation](docs/LOAD_CHECK.md) for measurements. Historical verification limits below describe earlier sessions.
 
-For the terminal client, start the service first, then run `python3 scripts/chat.py`. Use `--conversation ID` to resume a session and `--persona existentialist` to select a personality.
+For the terminal client, start the service first, then run `python3 scripts/chat.py`. Use `--conversation ID` to resume a session, `--persona existentialist` to select a prompt personality, or `--activation-recipe qwen-poet-v1 --strength .25` to apply a neuron preset.
 
 The unified backend requires FastAPI and Uvicorn, installed by the normal setup command. An existing checkout can update only the application dependencies with `.venv/bin/python -m pip install -e .`; the model cache is reused. Model packages remain lazy, and voice packages are not needed for text use. The new setup and API use `services.api`; `services.inference.server` remains a legacy implementation retained for compatibility tests.
 

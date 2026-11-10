@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Runtime } from './types';
 import './companion.css';
+import { ACTIVATION_RECIPES, activationRecipe, RECIPE_ID } from './data.mjs';
 
-type Settings = { persona: string; fusion: Record<string, number>; intensity: number; mood: boolean; memory: boolean; strength: number; max_tokens: number };
+type Settings = { activation_recipe?: string; persona: string; fusion: Record<string, number>; intensity: number; mood: boolean; memory: boolean; strength: number; max_tokens: number };
 type Persona = { id: string; name: string; description: string };
 type Work = { id: string; sequence: number; status: string; request: { prompt: string; kind: string; conversation_id?: string; provenance: string }; outputs: Record<string, string>; error: string | null; queue_position: number | null; metrics: Record<string, { seconds: number; tokens: number }> };
 type Conversation = { id: string; title: string; settings: Settings; turns: Work[] };
-const defaults: Settings = { persona: 'dark_comedian', fusion: {}, intensity: .85, mood: true, memory: true, strength: 0, max_tokens: 128 };
+const defaults: Settings = { activation_recipe: RECIPE_ID, persona: 'dark_comedian', fusion: {}, intensity: .85, mood: true, memory: true, strength: 0, max_tokens: 128 };
 const labels: Record<string, string> = { baseline: 'Baseline', prompt: 'Prompt only', activation: 'Activation only', combined: 'Combined' };
 const finished = (status: string) => ['complete', 'stopped', 'failed', 'interrupted'].includes(status);
 async function api(path: string, method = 'GET', body?: unknown, key?: string) {
@@ -41,7 +42,7 @@ export function Companion({ mode, runtime, setup }: { mode: string; runtime: Run
   }, [activation]);
   async function loadConversation(id: string) {
     const value: Conversation = await api(`/api/v2/conversations/${id}`);
-    setConversation(value); setSettings(value.settings);
+    setConversation(value); setSettings({ ...defaults, ...value.settings });
     try { sessionStorage.setItem('figgy.conversation', id); } catch { /* Optional convenience. */ }
     const active = value.turns.find(t => !finished(t.status));
     if (active) { sequence.current = 0; setJob(active); }
@@ -95,7 +96,7 @@ export function Companion({ mode, runtime, setup }: { mode: string; runtime: Run
   async function create() {
     try {
       const value = await api('/api/v2/conversations', 'POST', { title: `Conversation ${conversations.length + 1}` });
-      setConversation(value); setSettings(value.settings); setMessage(''); setJob(null);
+      setConversation(value); setSettings({ ...defaults, ...value.settings }); setMessage(''); setJob(null);
       try { sessionStorage.setItem('figgy.conversation', value.id); } catch { /* Optional. */ }
       await refreshLists();
     } catch (e) { setError((e as Error).message); }
@@ -141,9 +142,10 @@ export function Companion({ mode, runtime, setup }: { mode: string; runtime: Run
     {mode === 'memory' ? <div className="memory-list">{!memories.length && <p>No facts saved yet. Memory is learned selectively when it is enabled for a completed turn.</p>}{memories.map(m => <article key={m.id}><p>{m.content}</p><button className="button secondary" onClick={async () => { try { await api(`/api/v2/memories/${m.id}`, 'DELETE'); await refreshLists(); } catch (e) { setError((e as Error).message); } }}>Delete memory</button></article>)}</div> : <div className="companion-grid">
       <aside className="persona-controls" aria-label="Personality controls">
         {mode === 'companion' && <><label>Conversation<select aria-label="Conversation" disabled={busy} value={conversation?.id || ''} onChange={e => loadConversation(e.target.value).catch(err => setError(err.message))}><option value="" disabled>Choose a conversation</option>{conversations.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}</select></label><button className="button secondary" disabled={busy} onClick={create}>New conversation</button></>}
-        <label>Personality<select aria-label="Personality" value={settings.persona} onChange={e => setSettings({ ...settings, persona: e.target.value, fusion: {} })}>{personas.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
+        <label>Prompt personality<select aria-label="Personality" value={settings.persona} onChange={e => setSettings({ ...settings, persona: e.target.value, fusion: {} })}>{personas.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
         <label>Prompt intensity · {settings.intensity.toFixed(2)}<input aria-label="Prompt intensity" type="range" min="0" max="1" step=".05" value={settings.intensity} onChange={e => setSettings({ ...settings, intensity: +e.target.value })}/></label>
         <details><summary>Blend personalities</summary><p>Positive weights are normalized together.</p>{personas.map(p => <label key={p.id}>{p.name}<input aria-label={`${p.name} fusion weight`} type="range" min="0" max="1" step=".1" value={settings.fusion[p.id] || 0} onChange={e => { const fusion = { ...settings.fusion, [p.id]: +e.target.value }; Object.keys(fusion).forEach(k => { if (!fusion[k]) delete fusion[k]; }); setSettings({ ...settings, fusion }); }}/></label>)}</details>
+        <label>Activation personality<select aria-label="Companion activation personality" disabled={!activation} value={settings.activation_recipe || RECIPE_ID} onChange={e => setSettings({ ...settings, activation_recipe: e.target.value })}>{ACTIVATION_RECIPES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><small>{activationRecipe(settings.activation_recipe || RECIPE_ID).description} {activationRecipe(settings.activation_recipe || RECIPE_ID).note}</small>
         <label>Activation strength · {settings.strength.toFixed(2)}×<input aria-label="Activation strength" disabled={!activation} type="range" min="0" max="1" step=".05" value={settings.strength} onChange={e => setSettings({ ...settings, strength: +e.target.value })}/></label><small>Experimental. Independent of prompt intensity.</small>
         <label>Output tokens<select aria-label="Output tokens" value={settings.max_tokens} onChange={e => setSettings({ ...settings, max_tokens: +e.target.value })}>{[16, 64, 128, 256].map(v => <option key={v}>{v}</option>)}</select></label>
         <label className="check-field"><input type="checkbox" checked={settings.mood} onChange={e => setSettings({ ...settings, mood: e.target.checked })}/> Adapt prompt to mood</label>
